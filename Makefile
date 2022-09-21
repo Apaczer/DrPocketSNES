@@ -1,8 +1,8 @@
-COPT = -mcpu=arm920t -mtune=arm920t -static -g -I . -I /opt/open2x/gcc-4.1.1-glibc-2.3.6/include -I/opt/open2x/gcc-4.1.1-glibc-2.3.6/arm-open2x-linux/sys-include -O3 -D__GP2X__
+COPT = -mcpu=arm920t -mtune=arm920t -g -I . -I/opt/miyoo/include  -O3 -D__GP2X__
 COPT += -ffast-math -fexpensive-optimizations -finline -finline-functions -msoft-float -falign-functions=32 -falign-loops -falign-labels -falign-jumps -fomit-frame-pointer
-GCC = /opt/open2x/gcc-4.1.1-glibc-2.3.6/bin/arm-open2x-linux-gcc.exe
-STRIP = /opt/open2x/gcc-4.1.1-glibc-2.3.6/bin/arm-open2x-linux-strip.exe
-ADSASM = /opt/open2x/gcc-4.1.1-glibc-2.3.6/bin/arm-open2x-linux-as.exe
+GCC = /opt/miyoo/bin/arm-linux-gcc
+STRIP = /opt/miyoo/bin/arm-linux-strip
+ADSASM = /opt/miyoo/bin/arm-linux-as
 
 #
 # SNES stuff (c-based)
@@ -30,7 +30,7 @@ OBJS += gp2x_sdk.o menu.o input.o gp2x_menutile.o gp2x_highlightbar.o \
 OBJS += main.o
 
 # Inopia's menu system, hacked for the GP2X under rlyeh's sdk
-PRELIBS = -L/opt/open2x/gcc-4.1.1-glibc-2.3.6/lib -lpthread -lz $(LIBS)
+PRELIBS = -L/opt/miyoo/lib -lpthread -lz $(LIBS)
 
 all: pocketsnes.gpe
 clean: tidy pocketsnes.gpe
