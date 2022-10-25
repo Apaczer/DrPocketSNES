@@ -92,6 +92,7 @@ void S9xResetCPU ()
     CPU.WaitingForInterrupt = FALSE;
     CPU.InDMA = FALSE;
     CPU.WhichEvent = HBLANK_START_EVENT;
+    
     CPU.PC = NULL;
     CPU.PCBase = NULL;
     CPU.PCAtOpcodeStart = NULL;
@@ -112,13 +113,15 @@ void S9xResetCPU ()
     CPU.IRQCycleCount = 0;
     S9xSetPCBase (Registers.PC);
 
+#ifndef ASMCPU
 #ifndef VAR_CYCLES
-    //ICPU.Speed = S9xE1M1X1; // unused
+    ICPU.Speed = S9xE1M1X1;
 #endif
-    //ICPU.S9xOpcodes = S9xOpcodesM1X1; // unused
-    ICPU.CPUExecuting = TRUE;
+    ICPU.S9xOpcodes = S9xOpcodesM1X1;
+    S9xUnpackStatus();
+#endif
 
-    //S9xUnpackStatus(); // not needed
+    ICPU.CPUExecuting = TRUE;
 }
 
 
@@ -158,7 +161,7 @@ void S9xReset (void)
        //Init CPU Map & co
     CPU.Memory_Map=(uint8*)&(Memory.Map);
     CPU.Memory_WriteMap=(uint8*)&(Memory.WriteMap);
-    CPU.Memory_MemorySpeed=(uint8*)&(Memory.MemorySpeed);
+    CPU.Memory_MemorySpeed=Memory.MemorySpeed;
     CPU.Memory_BlockIsRAM=(uint8*)&(Memory.BlockIsRAM);
     CPU.Memory_SRAM=Memory.SRAM;
     CPU.Memory_BWRAM=Memory.BWRAM;

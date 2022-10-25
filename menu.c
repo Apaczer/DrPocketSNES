@@ -1,32 +1,73 @@
-
 #include "menu.h"
+#include "theme.h"
+#include "config.h"
+#include "screenshot.h"
+#include "graphics.h"
+#include "png.h"
+
+#define MENU_AREA_Y_START	50
+#define MENU_AREA_Y_END		227
+
+#define PPU_IGNORE_FIXEDCOLCHANGES 			(1<<0)
+#define PPU_IGNORE_WINDOW					(1<<1)
+#define PPU_IGNORE_ADDSUB					(1<<2)
+#define PPU_IGNORE_PALWRITE				 	(1<<3)
+#define GFX_IGNORE_OBJ				 		(1<<4)
+#define GFX_IGNORE_BG0				 		(1<<5)
+#define GFX_IGNORE_BG1				 		(1<<6)
+#define GFX_IGNORE_BG2				 		(1<<7)
+#define GFX_IGNORE_BG3				 		(1<<8)
 
 char romDir[MAX_PATH+1];
 char snesRomDir[MAX_PATH+1];
 
+#define ROM_SELECTOR_DEFAULT_FOCUS		3
+
 DIRDATA dir;
 
-unsigned short cpuSpeedLookup[40]={ 
+#if defined (__GP2X__)	
+unsigned short cpuSpeedLookup[46]={ 
 					10,20, 30, 40, 50,
 					60,70, 80, 90,100,
 					110,120,130,144,150,
 					160,170,180,190,200,
 					210,220,230,240,250,
-					260,270,280,290,300,
-					310,320,330,340,350,
-					360,370,380,390,400};
+					255,260,265,270,275,
+					280,285,290,295,300,
+					305,310,315,320,325,
+					330,335,340,345,350,
+					355};
+#endif
+
+#if defined (__WIZ__)	
+unsigned short cpuSpeedLookup[46]={ 
+					200,250, 300, 350, 400,
+					450,500, 520, 540,560,
+					580,590,600,610,620,
+					630,640,650,660,670,
+					680,690,700,710,720,
+					730,740,750,760,770,
+					780,790,800,810,820,
+					830,840,850,860,870,
+					875,880,885,890,895,
+					900};
+#endif
 
 extern volatile int timer;
 static int menutileXscroll=0;
 static int menutileYscroll=0;
 static int headerDone[4]; // variable that records if header graphics have been rendered or not
 int quickSavePresent=0;
+struct ROM_LIST_RECORD
+{
+	char filename[MAX_PATH+1];
+	char type;
+};
 
-struct ROM_LIST_RECORD romList[MAX_ROMS];
+static struct ROM_LIST_RECORD romList[MAX_ROMS];
 struct SNES_MENU_OPTIONS snesMenuOptions;
 
 static int romCount;
-int currentRomIndex=2;
 char currentRomFilename[MAX_PATH+1]="";
 int currFB=0;
 int prevFB=0;
@@ -36,11 +77,19 @@ char currentWorkingDir[MAX_PATH+1];
 char snesOptionsDir[MAX_PATH+1];
 char snesSramDir[MAX_PATH+1];
 char snesSaveStateDir[MAX_PATH+1];
+#if defined(__WIZ__)
+float soundRates[3]={22050.0,32000.0,44100.0};
+#else
 float soundRates[5]={8000.0,11025.0,16000.0,22050.0,44100.0};
+#endif
 char menutext[256][50];
 
 struct SAVE_STATE saveState[10];  // holds the filenames for the savestate and "inuse" flags
 char saveStateName[MAX_PATH+MAX_PATH+2];       // holds the last filename to be scanned for save states
+
+// a few vars for persistent file selector
+int lastSelected = -1; 
+int defaultDir;
 
 unsigned char gammaConv[32*29]={   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29, 30, 31,
                                     0, 2, 3, 5, 6, 7, 8, 9, 10, 12, 13, 14, 15, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 24, 25, 26, 27, 28, 29, 29, 30, 31,
@@ -72,6 +121,10 @@ unsigned char gammaConv[32*29]={   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13,
                                     0, 20, 22, 23, 24, 24, 25, 26, 26, 26, 27, 27, 27, 28, 28, 28, 28, 29, 29, 29, 29, 29, 30, 30, 30, 30, 30, 30, 31, 31, 31, 31,
                                     0, 20, 22, 23, 24, 25, 25, 26, 26, 27, 27, 27, 28, 28, 28, 28, 29, 29, 29, 29, 29, 30, 30, 30, 30, 30, 30, 30, 31, 31, 31, 31};
 
+
+void InitMenu(void) {
+	
+}
 									
 void UpdateMenuGraphicsGamma(void)
 {
@@ -92,7 +145,7 @@ void UpdateMenuGraphicsGamma(void)
       G=gammaConv[G+(0<<5)];
       B=gammaConv[B+(0<<5)];
 
-      pixel=RGB(R,G,B);
+      pixel=MENU_RGB(R,G,B);
       menuHeader[currPix]=pixel;
    }
    for(currPix=0;currPix<5120;currPix++)
@@ -109,7 +162,7 @@ void UpdateMenuGraphicsGamma(void)
       G=gammaConv[G+(0<<5)];
       B=gammaConv[B+(0<<5)];
 
-      pixel=RGB(R,G,B);
+      pixel=MENU_RGB(R,G,B);
       highLightBar[currPix]=pixel;
    
    }
@@ -128,7 +181,7 @@ void UpdateMenuGraphicsGamma(void)
       G=gammaConv[G+(0<<5)];
       B=gammaConv[B+(0<<5)];
 
-      pixel=RGB(R,G,B);
+      pixel=MENU_RGB(R,G,B);
       menuTile[currPix]=pixel;
    
    }
@@ -144,8 +197,25 @@ void SnesDefaultMenuOptions(void)
 	memset(snesMenuOptions.padConfig,0xFF,sizeof(snesMenuOptions.padConfig));
 	snesMenuOptions.showFps=1;
 	snesMenuOptions.gamma=0;
+	snesMenuOptions.asmspc700=1;
+	snesMenuOptions.SpeedHacks=1;
+#if defined(__WIZ__)
+	snesMenuOptions.soundRate=0;
+	snesMenuOptions.cpuSpeed=8;
+#else
 	snesMenuOptions.soundRate=2;
 	snesMenuOptions.cpuSpeed=19;
+#endif
+	snesMenuOptions.loadOnInit = 0;
+	snesMenuOptions.delayedRasterFX = 1;
+}
+
+static void ShowMessage(char *text, int showMessage) {
+	if (showMessage) {
+		gp_setClipping(0, 0, 310, 239);
+		PrintBar(prevFB,240-16);
+		gp_drawString(40,228,strlen(text),text,tTextColorFocus,framebuffer16[prevFB]);
+		}	
 }
 
 int LoadMenuOptions(char *path, char *filename, char *ext, char *optionsmem, int maxsize, int showMessage)
@@ -157,16 +227,10 @@ int LoadMenuOptions(char *path, char *filename, char *ext, char *optionsmem, int
 	int size=0;
 	char text[50];
 	
-	sprintf(text,"Loading...");
-	//Sometimes the on screen messages are not required
-	if (showMessage)
-	{
-		PrintBar(prevFB,240-16);
-		gp_drawString(40,228,strlen(text),text,(unsigned short)RGB(0,0,0),framebuffer16[prevFB]);
-	}
+	ShowMessage("Loading...", showMessage);
 	
     SplitFilename(filename, _filename, _ext);
-	sprintf(fullFilename,"%s%s%s.%s",path,DIR_SEPERATOR,_filename,ext);
+	sprintf(fullFilename,"%s%s%s.%s",path,DIR_SEP,_filename,ext);
 	stream=fopen(fullFilename,"rb");
 	if(stream)
 	{
@@ -193,16 +257,10 @@ int SaveMenuOptions(char *path, char *filename, char *ext, char *optionsmem, int
 	FILE *stream;
 	char text[50];
 	
-	sprintf(text,"Saving...");
-	//Sometimes the on screen messages are not required
-	if (showMessage)
-	{
-		PrintBar(prevFB,240-16);
-		gp_drawString(40,228,strlen(text),text,(unsigned short)RGB(0,0,0),framebuffer16[prevFB]);
-	}
+	ShowMessage("Saving...", showMessage);
 	
 	SplitFilename(filename, _filename, _ext);
-	sprintf(fullFilename,"%s%s%s.%s",path,DIR_SEPERATOR,_filename,ext);
+	sprintf(fullFilename,"%s%s%s.%s",path,DIR_SEP,_filename,ext);
 	stream=fopen(fullFilename,"wb");
 	if(stream)
 	{
@@ -224,16 +282,10 @@ int DeleteMenuOptions(char *path, char *filename, char *ext, int showMessage)
 	char _ext[MAX_PATH+1];
 	char text[50];
 	
-	sprintf(text,"Deleting...");
-	//Sometimes the on screen messages are not required
-	if (showMessage)
-	{
-		PrintBar(prevFB,240-16);
-		gp_drawString(40,228,strlen(text),text,(unsigned short)RGB(0,0,0),framebuffer16[prevFB]);
-	}
+	ShowMessage("Deleting...", showMessage);
 	
 	SplitFilename(filename, _filename, _ext);
-	sprintf(fullFilename,"%s%s%s.%s",path,DIR_SEPERATOR,_filename,ext);
+	sprintf(fullFilename,"%s%s%s.%s",path,DIR_SEP,_filename,ext);
 	remove(fullFilename);
 	sync();
 	return(0);
@@ -296,7 +348,7 @@ void MenuPause()
 		}
 	}
 }
-#if defined (__GP2X__)	
+#if defined (__GP2X__) || defined(__WIZ__)	
 void MenuFlip()
 {
 	prevFB=currFB;
@@ -348,8 +400,20 @@ void SplitFilename(char *wholeFilename, char *filename, char *ext)
 	}
 }
 
+//Ensures all directory seperators are valid for system
+void CheckDirSep(char *path)
+{
+	int i=0;
+	char dirSepBad[2]={DIR_SEP_BAD};
+	char dirSep[2]={DIR_SEP};
+	for(i=0;i<strlen(path);i++)
+	{
+		if(path[i] == dirSepBad[0]) path[i]=dirSep[0];
+	}
+}
 
-int MessageBox(char *message1,char *message2,char *message3,int mode)
+
+int MenuMessageBox(char *message1,char *message2,char *message3,int mode)
 {
   int select=0;
   int subaction=-1;
@@ -373,27 +437,27 @@ int MessageBox(char *message1,char *message2,char *message3,int mode)
      PrintTitle(currFB);
 	 len=strlen(message1);
 	 if(len>39)len=39;
-     gp_drawString(8,50,len,message1,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+     gp_drawString(8,50,len,message1,tTextColorItem,framebuffer16[currFB]);
      len=strlen(message2);
 	 if(len>39)len=39;
-	 gp_drawString(8,60,len,message2,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+	 gp_drawString(8,60,len,message2,tTextColorItem,framebuffer16[currFB]);
      len=strlen(message3);
 	 if(len>39)len=39;
-	 gp_drawString(8,70,len,message3,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+	 gp_drawString(8,70,len,message3,tTextColorItem,framebuffer16[currFB]);
      switch(mode)
      {
         case 0: // yes no input
 	       if(select==0)
 	       {
 			  PrintBar(currFB, 120-4);
-	          gp_drawString(8,120,3,"YES",(unsigned short)RGB(0,0,0),framebuffer16[currFB]);
-	          gp_drawString(8,140,2,"NO",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+	          gp_drawString(8,120,3,"YES",tTextColorFocus,framebuffer16[currFB]);
+	          gp_drawString(8,140,2,"NO",tTextColorItem,framebuffer16[currFB]);
 	       }
 	       else
 	       {
 			  PrintBar(currFB, 140-4);
-	          gp_drawString(8,120,3,"YES",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
-	          gp_drawString(8,140,2,"NO",(unsigned short)RGB(0,0,0),framebuffer16[currFB]);
+	          gp_drawString(8,120,3,"YES",tTextColorItem,framebuffer16[currFB]);
+	          gp_drawString(8,140,2,"NO",tTextColorFocus,framebuffer16[currFB]);
 	       
 	       }
 	       break;
@@ -416,26 +480,25 @@ int deleterom(int romindex)
     MenuFlip();
 	
     sprintf(text,"Deleting Rom..");
-    gp_drawString(8,50,strlen(text),text,(unsigned short)RGB(31,31,31),framebuffer16[prevFB]);
+    gp_drawString(8,50,strlen(text),text,tTextColorItem,framebuffer16[prevFB]);
 	
     sprintf(text,"%s",romList[romindex].filename);
 	x=strlen(text);
 	if(x>40) x=40;
-	gp_drawString(0,60,x,text,(unsigned short)RGB(31,31,31),framebuffer16[prevFB]);
+	gp_drawString(0,60,x,text,tTextColorItem,framebuffer16[prevFB]);
 	
-	sprintf(fullfilename,"%s%s%s",romDir,DIR_SEPERATOR,romList[romindex].filename);
+	sprintf(fullfilename,"%s%s%s",romDir,DIR_SEP,romList[romindex].filename);
     remove(fullfilename);
 	sync();
 	
     sprintf(text,"Updating Rom List..");
-    gp_drawString(8,70,strlen(text),text,(unsigned short)RGB(31,31,31),framebuffer16[prevFB]);
+    gp_drawString(8,70,strlen(text),text,tTextColorItem,framebuffer16[prevFB]);
     for(x=romindex;x<romCount;x++)
     {
 		strcpy(romList[x].filename, romList[x+1].filename);
 		romList[x].type = romList[x+1].type;
     }
     romCount--;
-    currentRomIndex--;
 	
 	return(1);
 }
@@ -448,62 +511,76 @@ void PrintTile(int flip)
 	unsigned short *framebuffer1 = framebuffer16[flip]+(48*320);
 	unsigned short *graphics1 = NULL;
 
-	x2=menutileXscroll;
-	y2=(menutileYscroll*MENU_TILE_WIDTH);
-	graphics1 = menuTile+y2;
-	for (y=0; y<(240-48); y++)
-	{
-		for (x=0; x<320; x++)
-		{
-			*framebuffer1++ = graphics1[x2];
-			x2++;
-			x2&=(MENU_TILE_WIDTH-1);
-		}
-		y2+=MENU_TILE_WIDTH;
-		y2&=((MENU_TILE_HEIGHT*MENU_TILE_WIDTH)-1);
-		graphics1=menuTile+y2;
-	}
+	if (isThemeActive() != 0) {
+		gDrawBitmap16((unsigned short *)framebuffer16[flip], 0, MENU_AREA_Y_START, 
+			tBmpBackground, 0, MENU_AREA_Y_START, tBmpBackground->w,  tBmpBackground->h - MENU_AREA_Y_START + 1);
+	} else {
 
-	tileCounter++;
-	if (tileCounter > 5)
-	{
-		tileCounter=0;
-		menutileXscroll++;
-		if(menutileXscroll>=MENU_TILE_WIDTH) menutileXscroll=0;
-	  
-		menutileYscroll++;
-		if(menutileYscroll>=MENU_TILE_HEIGHT) menutileYscroll=0;
+		x2=menutileXscroll;
+		y2=(menutileYscroll*MENU_TILE_WIDTH);
+		graphics1 = menuTile+y2;
+		for (y=0; y<(240-48); y++)
+		{
+			for (x=0; x<320; x++)
+			{
+				*framebuffer1++ = graphics1[x2];
+				x2++;
+				x2&=(MENU_TILE_WIDTH-1);
+			}
+			y2+=MENU_TILE_WIDTH;
+			y2&=((MENU_TILE_HEIGHT*MENU_TILE_WIDTH)-1);
+			graphics1=menuTile+y2;
+		}
+
+		tileCounter++;
+		if (tileCounter > 5)
+		{
+			tileCounter=0;
+			menutileXscroll++;
+			if(menutileXscroll>=MENU_TILE_WIDTH) menutileXscroll=0;
+		  
+			menutileYscroll++;
+			if(menutileYscroll>=MENU_TILE_HEIGHT) menutileYscroll=0;
+		}
 	}  
 	return; 
 }
 
 void PrintTitle(int flip)
 {
-	unsigned short *framebuffer = (unsigned short*)framebuffer16[flip];
-	unsigned short *graphics = (unsigned short*)menuHeader;
 	unsigned int x,y;
-	char text[256];
+	char text[] = DRSNES_VERSION;
 	//If header already drawn for this layer exit
 	if (headerDone[flip]) return;
   
-	for (y=0; y<48; y++)
-	{
-		for (x=0; x<320; x++)
+	if (isThemeActive() != 0) {
+		gDrawBitmap16((unsigned short *)framebuffer16[flip], 0, 0, tBmpBackground, 0, 0, tBmpBackground->w, MENU_AREA_Y_START);
+	} else {
+		unsigned short *framebuffer = (unsigned short*)framebuffer16[flip];
+		unsigned short *graphics = (unsigned short*)menuHeader;
+
+		for (y=0; y<48; y++)
 		{
-			*framebuffer++ = *graphics++;
+			for (x=0; x<320; x++)
+			{
+				*framebuffer++ = *graphics++;
+			}
 		}
 	}
   
-	sprintf(text,"%s",DRSNES_VERSION);
-	gp_drawString(175,15,strlen(text),text,(unsigned short)RGB(0,0,31),framebuffer16[flip]);
+	//sprintf(text,"%s",DRSNES_VERSION);
+	gp_drawString(175,15,strlen(text),text,tTextColorVersion,framebuffer16[flip]);
 	headerDone[currFB] = 1;
 }
 
 void PrintBar(int flip, unsigned int givenY)
 {
-  unsigned int *framebuffer1 = NULL;
-  unsigned int *graphics1 = (unsigned int *)highLightBar;
-  unsigned int x,y;
+  if (isThemeActive()) {
+	gBlendBitmap16((unsigned short *)framebuffer16[flip], 0, givenY, tBmpBar, 0, 0, tBmpBar->w, tBmpBar->h);
+  } else {
+	unsigned int *framebuffer1 = NULL;
+	unsigned int *graphics1 = (unsigned int *)highLightBar;
+	unsigned int x,y;
 
 	framebuffer1 = (unsigned int*)framebuffer16[flip]+(givenY*160);
 	for (y=0; y<16; y++)
@@ -513,6 +590,7 @@ void PrintBar(int flip, unsigned int givenY)
 			*framebuffer1++ = *graphics1++;
 		}
 	}
+  }
 }
 
 static int StringCompare(char *string1, char *string2)
@@ -564,18 +642,19 @@ int FileScan()
 	int dirCount=0;
 	char _filename[MAX_PATH+1];
 	char _ext[MAX_PATH+1];
+	char ll[1024];
+	char *llf;
 
 #ifdef __GIZ__	
 	wchar_t  wc[MAX_PATH+1];
 	HANDLE hTest;
     WIN32_FIND_DATAW fileInfo;
 #endif
-	
-	//gp_setCpuspeed(MENU_FAST_CPU_SPEED);
-  
+ 
 	PrintTile(currFB);
 	PrintTitle(currFB);
-	gp_drawString(8,120,25,"Getting Directory Info...",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+	gp_setClipping(0, 0, 319, 239);
+	gp_drawString(8,120,25,"Getting Directory Info...",tTextColorItem,framebuffer16[currFB]);
 	MenuFlip();
 	
 	for (i=0;i<MAX_ROMS;i++)
@@ -587,10 +666,14 @@ int FileScan()
 	romCount=0;
 	
 	// Now sort the directory details
-	sprintf(romList[0].filename,"Back To Main Menu");
-	sprintf(romList[1].filename,"..");
-	romList[2].filename[0] = 0;
-	romCount=3;
+	sprintf(romList[0].filename,"Save As Default Directory");
+	sprintf(romList[1].filename,"Back To Main Menu");
+	sprintf(romList[2].filename,"Parent Directory");
+	romList[3].filename[0] = 0;
+	romCount=4;
+
+	lastSelected = -1;
+	defaultDir = (strcmp(snesRomDir, romDir) == 0);	
 
 	d = opendir(romDir);
 
@@ -600,20 +683,18 @@ int FileScan()
 		{
 			if (de->d_name[0] != '.')
 			{
-#ifdef __GP2X__
+#if defined(__GP2X__) || defined(__WIZ__)
 				if (de->d_type == 4) // Directory
-				{
 #endif
 #ifdef __GIZ__
-				// Because windows GNU library does not return the file type
-				// property I will have to try and open each file as a directory instead
-				sprintf(dirCheck,"%s%s%s",romDir,DIR_SEPERATOR,de->d_name);
+				sprintf(dirCheck,"%s%s%s",romDir,DIR_SEP,de->d_name);
 				CharToWChar(wc, dirCheck);
 				hTest=FindFirstFileW(wc, &fileInfo);
 				if (fileInfo.dwFileAttributes&FILE_ATTRIBUTE_DIRECTORY)
+#endif	
 				{
-#endif				
-					for (i=3;i<=(romCount+1);i++)
+			
+					for (i=ROM_SELECTOR_DEFAULT_FOCUS+1;i<=(romCount+1);i++)
 					{
 						if (romList[i].filename[0] == 0) // string is empty so shove new value in
 						{
@@ -650,7 +731,7 @@ int FileScan()
 					    (StringCompare(_ext,"smc") == 0) ||
 						(StringCompare(_ext,"sfc") == 0))
 					{
-						for (i=3+dirCount;i<=(romCount+1);i++)
+						for (i=ROM_SELECTOR_DEFAULT_FOCUS+1+dirCount;i<=(romCount+1);i++)
 						{
 							if (romList[i].filename[0] == 0) // string is empty so shove new value in
 							{
@@ -685,18 +766,45 @@ int FileScan()
 					PrintTile(currFB);
 					PrintTitle(currFB);
 					sprintf(text,"Max rom limit exceeded! %d max",MAX_ROMS);
-					gp_drawString(8,120,strlen(text),text,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+					gp_drawString(8,120,strlen(text),text,tTextColorItem,framebuffer16[currFB]);
 					sprintf(text,"Please reduce number of roms");
-					gp_drawString(8,130,strlen(text),text,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+					gp_drawString(8,130,strlen(text),text,tTextColorItem,framebuffer16[currFB]);
 					MenuFlip();
 					MenuPause();
-					return MAX_ROMS;
+					break;
 				}
 			}
 		}
 		closedir(d);
+
+		getConfigValue(CONFIG_LASTLOADED, ll, sizeof(ll));
+		if (strstr(ll, romDir)) { // where loaded in current dir		
+			llf = strrchr(ll, '/');
+			if (!llf) {
+				ll[0] = '\0';
+				llf = ll;
+			} else llf++;
+
+			for(i = 4; i < romCount; i++) {
+				if ((romList[i].type == FILE_TYPE_FILE) && 
+				    (strncmp(romList[i].filename, llf, strlen(romList[i].filename)) == 0)) {
+					lastSelected = i;
+				}
+			}
+		}
 	}
-	//gp_setCpuspeed(MENU_CPU_SPEED);
+	else
+	{
+		PrintTile(currFB);
+		PrintTitle(currFB);
+		sprintf(text,"Failed to open directory!");
+		gp_drawString(8,120,strlen(text),text,tTextColorItem,framebuffer16[currFB]);
+		MenuFlip();
+		MenuPause();
+	}
+
+
+
 	return romCount;
 }
 
@@ -708,14 +816,41 @@ int FileSelect(int mode)
 	int smooth=0;
 	unsigned short color=0;
 	int i=0;
-	int focus=2;
+	int focus=ROM_SELECTOR_DEFAULT_FOCUS;
 	int menuExit=0;
 	int scanstart=0,scanend=0;
-	char directorySeparator[2] = DIR_SEPERATOR; // used for char comparison;
-  
+	char dirSep[2]={DIR_SEP};
+	char dirSepBad[2]={DIR_SEP_BAD};
+	
+	//int x = lastSelected;
+	int txt_dir; 
+	int txt_offset;
+	int frame;
+
+#define TIME_TO_SCREENSHOT	(20 * 1)	
+#define RESET_SCREENSHOT_COUNTER \
+	timeToScreenshot = TIME_TO_SCREENSHOT;\
+	if (bmpScreenshot) {\
+	 	gDestroyBitmap(bmpScreenshot); \
+		bmpScreenshot = NULL; \
+		}\
+	noScreenshot = 0; 
+
+	int timeToScreenshot;
+	int noScreenshot;
+	int xScreenshot;
+	gBITMAP *bmpScreenshot = NULL;
+
 	FileScan();
-	if(focus<2) focus=2; 	// default menu to non menu item
-									// just to stop directory scan being started 
+#define RESET_NAME_SCROLL \
+	txt_dir = 1; \
+	txt_offset = -1;
+
+	RESET_NAME_SCROLL
+	RESET_SCREENSHOT_COUNTER
+
+	if (lastSelected >= 0) focus = lastSelected;
+	if (focus>romCount-1) focus = ROM_SELECTOR_DEFAULT_FOCUS;
 	smooth=focus<<8;
 
 	while (menuExit==0)
@@ -726,10 +861,14 @@ int FileSelect(int mode)
 		if (Inp.repeat[INP_BUTTON_UP])
 		{
 			focus--; // Up
+			RESET_NAME_SCROLL
+			RESET_SCREENSHOT_COUNTER
 		}
 		if (Inp.repeat[INP_BUTTON_DOWN])
 		{
 			focus++; // Down
+			RESET_NAME_SCROLL
+			RESET_SCREENSHOT_COUNTER
 		}
 
 		if (Inp.held[INP_BUTTON_MENU_CANCEL]==1 ) {action=0; menuExit=1;}
@@ -757,91 +896,153 @@ int FileSelect(int mode)
 				focus=0;
 				smooth=(focus<<8)-1;
 			}
+			RESET_NAME_SCROLL
+			RESET_SCREENSHOT_COUNTER
 		}
 
 		if (focus>romCount-1) 
 		{
 			focus=0;
 			smooth=(focus<<8)-1;
+			RESET_NAME_SCROLL
+			RESET_SCREENSHOT_COUNTER
 		}
 		else if (focus<0)
 		{
 			focus=romCount-1;
 			smooth=(focus<<8)-1;
+			RESET_NAME_SCROLL
+			RESET_SCREENSHOT_COUNTER
 		}
-		
+		//if (defaultDir) lastSelected = focus;
 		if (Inp.held[INP_BUTTON_MENU_SELECT]==1)
 	    {
-			if(focus==0)
+			switch(focus)
 			{
-				action=0;
-				menuExit=1;
-			}
-			else if(focus==1)
-			{
-				// up a directory
-				//Remove a directory from RomPath and rescan
-				for(i=strlen(romDir)-1;i>0;i--) // don't want to change first char in screen
-				{
-					if(romDir[i] == directorySeparator[0])
+				case 0: //Save default directory
+					SaveMenuOptions(snesOptionsDir, DEFAULT_ROM_DIR_FILENAME, DEFAULT_ROM_DIR_EXT, romDir, strlen(romDir),1);
+					strcpy(snesRomDir,romDir);
+					break;
+					
+				case 1: //Return to menu
+					action=0;
+					menuExit=1;
+					break;
+					
+				case 2: //Goto Parent Directory
+					// up a directory
+					//Remove a directory from RomPath and rescan
+					//Code below will never let you go further up than \SD Card\ on the Gizmondo
+					//This is by design.
+					for(i=strlen(romDir)-1;i>0;i--) // don't want to change first char in screen
 					{
-						romDir[i] = 0;
-						break;
+						if((romDir[i] == dirSep[0]) || (romDir[i] == dirSepBad[0]))
+						{
+							romDir[i] = 0;
+							break;
+						}
 					}
-				}
-				FileScan();
-				focus=2; // default menu to non menu item
-												// just to stop directory scan being started 
-				smooth=focus<<8;
-			}	
-			else if(focus==2)
-			{
-				// nothing blank entry
-			}		
-			else
-			{
-				// normal file or dir selected
-				if (romList[focus].type == FILE_TYPE_DIRECTORY)
-				{
-					sprintf(romDir,"%s%s%s",romDir,DIR_SEPERATOR,romList[focus].filename);
 					FileScan();
-					focus=2; // default menu to non menu item
+					RESET_NAME_SCROLL
+					RESET_SCREENSHOT_COUNTER
+					focus=ROM_SELECTOR_DEFAULT_FOCUS; // default menu to non menu item
 													// just to stop directory scan being started 
 					smooth=focus<<8;
-				}
-				else
-				{
-					// user has selected a rom, so load it
-					currentRomIndex=focus;
-					quickSavePresent=0;  // reset any quick saves
-					action=1;
-					menuExit=1;
-				}
+					memset(&headerDone,0,sizeof(headerDone)); //clear header
+					break;
+					
+				case ROM_SELECTOR_DEFAULT_FOCUS: //blank space - do nothing
+					break;
+					
+				default:
+					// normal file or dir selected
+					if (romList[focus].type == FILE_TYPE_DIRECTORY)
+					{
+						//Just check we are not in root dir as this will always have
+						//a trailing directory seperater which screws with things
+						sprintf(romDir,"%s%s%s",romDir,DIR_SEP,romList[focus].filename);
+						FileScan();
+						RESET_NAME_SCROLL
+						RESET_SCREENSHOT_COUNTER
+						focus=ROM_SELECTOR_DEFAULT_FOCUS; // default menu to non menu item
+														// just to stop directory scan being started 
+						smooth=focus<<8;
+					}
+					else
+					{
+						// user has selected a rom, so load it
+						sprintf(currentRomFilename,romList[focus].filename);
+						quickSavePresent=0;  // reset any quick saves
+						action=1;
+						menuExit=1;
+					}
+					break;
 			}
 	    }
 
 		if (Inp.held[INP_BUTTON_MENU_DELETE]==1)
 		{
-			if(focus>2)
+			if(focus>ROM_SELECTOR_DEFAULT_FOCUS)
 			{
 				//delete current rom
 				if (romList[focus].type != FILE_TYPE_DIRECTORY)
 				{
 					sprintf(text,"%s",romList[focus].filename);
 
-					if(MessageBox("Are you sure you want to delete",text,"",0)==0)
+					if(MenuMessageBox("Are you sure you want to delete",text,"",0)==0)
 					{
 						deleterom(focus);
+						RESET_NAME_SCROLL
+						RESET_SCREENSHOT_COUNTER
 					}
 				}
 			}
+		}
+		#define MAX_WIDTH 	(39 * 8)
+
+		if (timeToScreenshot) timeToScreenshot--;
+		else if ((!bmpScreenshot) && (focus > ROM_SELECTOR_DEFAULT_FOCUS) && (!noScreenshot)) {
+			char png_fn[1024];
+			char *ext;
+			gBITMAP *b;
+			// Compose focused filename + screenshots dir
+			snprintf(png_fn, sizeof(png_fn), "%s/%s", getScreenShotsDir(), romList[focus].filename);
+			// set file ext to .png
+			ext = strrchr(png_fn, '.');
+			if (!ext) ext = &png_fn[strlen(png_fn)];
+			strcpy(ext, ".png");
+			// load screenshot
+			b = load_png(png_fn, NULL);
+			if (!b) noScreenshot = 1;
+			else {
+				unsigned int sh, sw;
+				sh = MENU_AREA_Y_END - MENU_AREA_Y_START - 2 + 1;
+				sw = (sh * b->w)/ b->h;
+				bmpScreenshot = gStretchBitmap(b, sw, sh);
+				gDestroyBitmap(b);
+				if (!bmpScreenshot) noScreenshot = 1;
+				else xScreenshot = SCREEN_WIDTH - 2;
+				}
 		}
 
 		// Draw screen:
 		PrintTile(currFB);
 		PrintTitle(currFB);
-		if(mode==0) gp_drawString(6,35,10,"Select Rom",(unsigned short)RGB(31,0,0),framebuffer16[currFB]); 
-		if(mode==1) gp_drawString(6,35,10,"Delete Rom",(unsigned short)RGB(31,0,0),framebuffer16[currFB]); 
+		sprintf(text,"%s:%s",mode?"Select Rom":"Delete Rom",romDir);
+		gp_setClipping(0, 0, 319, 239);
+		gp_drawString(6,35,strlen(text)>=40?39:strlen(text),text,tTextColorTitle,framebuffer16[currFB]); 
+		//gp_setClipping(8, MENU_AREA_Y_START, 8 + MAX_WIDTH, MENU_AREA_Y_END);
+		
+		// Draw focused file's screenshot
+		if (bmpScreenshot) {
+			//unsigned int sh, sw;
+			//sh = MENU_AREA_Y_END - MENU_AREA_Y_START - 2 + 1;
+			//sw = (sh * bmpScreenshot->w)/ bmpScreenshot->h;
+			//gDrawScaledBitmap16(framebuffer16[currFB], xScreenshot, MENU_AREA_Y_START + 1, bmpScreenshot, sw, sh);
+			//if (xScreenshot > (SCREEN_WIDTH - sw - 4)) xScreenshot -= 2;
+			gDrawBitmap16(framebuffer16[currFB], xScreenshot, MENU_AREA_Y_START + 1, bmpScreenshot, 0, 0, bmpScreenshot->w, bmpScreenshot->h);
+			if (xScreenshot > (SCREEN_WIDTH - bmpScreenshot->w - 4)) xScreenshot -= 8;
+			}
 
 		smooth=smooth*7+(focus<<8); smooth>>=3;
 
@@ -852,21 +1053,30 @@ int FileSelect(int mode)
 		
 		for (i=scanstart;i<scanend;i++)
 		{
-			int x=0,y=0;
+			int x=0,y=0, offset=0;
       
 			y=(i<<4)-(smooth>>4);
 			x=8;
 			y+=112;
-			if (y<=48 || y>=232) continue;
-           
+			if (y<= (MENU_AREA_Y_START - 8) || y>=232) continue;
+
+			gp_setClipping(8, MENU_AREA_Y_START, 8 + MAX_WIDTH, MENU_AREA_Y_END);
+			romname_length=strlen(romList[i].filename);           
 			if (i==focus)
 			{
-				color=(unsigned short)RGB(0,0,0);
+				color=tTextColorFocus;
 				PrintBar(currFB,y-4);
+				if ((romname_length * 8) > MAX_WIDTH) { // let's scroll romname if length is bigger than screen width
+					if (frame == 0) txt_offset += txt_dir; // one of each 4 frames
+					if (txt_offset == 1) {txt_offset = 0; txt_dir = -1;}
+					if ((romname_length * 8 + txt_offset) < MAX_WIDTH) txt_dir = 1;
+					offset = txt_offset;
+					} 
 			}
 			else
 			{
-				color=(unsigned short)RGB(31,31,31);
+				color=tTextColorItem;
+				if (bmpScreenshot) gp_setClipping(8, MENU_AREA_Y_START, xScreenshot - 1, MENU_AREA_Y_END);
 			}
 
 			// Draw Directory icon if current entry is a directory
@@ -875,14 +1085,14 @@ int FileSelect(int mode)
 				gp_drawString(x-8,y,1,"+",color,framebuffer16[currFB]); 
 			}
 			
-			romname_length=strlen(romList[i].filename);
-			if(romname_length>39) romname_length=39;
-			gp_drawString(x,y,romname_length,romList[i].filename,color,framebuffer16[currFB]); 
+			gp_drawString(x + offset, y, romname_length,romList[i].filename,color,framebuffer16[currFB]); 
 		}
-
+		gp_setClipping(0, 0, 319, 239);
+		frame = (frame + 1) & 3;
 		MenuFlip();
 	}
-
+	
+	gDestroyBitmap(bmpScreenshot);
 	return action;
 }
 
@@ -909,7 +1119,7 @@ static void ScanSaveStates(char *romname)
 		shortname(minus file ext) + SV + saveno ( 0 to 9 )
 		*/
 		sprintf(saveState[i].filename,"%s%d",savename,i);
-		sprintf(saveState[i].fullFilename,"%s%s%s",snesSaveStateDir,DIR_SEPERATOR,saveState[i].filename);
+		sprintf(saveState[i].fullFilename,"%s%s%s",snesSaveStateDir,DIR_SEP,saveState[i].filename);
 		stream=(FILE*)fopen(saveState[i].fullFilename,"rb");
 		if(stream)
 		{
@@ -943,7 +1153,7 @@ static int SaveStateSelect(int mode)
 	int action=11;
 	int saveno=0;
 	
-	if(currentRomIndex<=2)
+	if(currentRomFilename[0]==0)
 	{
 		// no rom loaded
 		// display error message and exit
@@ -967,23 +1177,23 @@ static int SaveStateSelect(int mode)
 		else if((Inp.held[INP_BUTTON_MENU_SELECT]==1)&&(mode==1)&&(action==5)) action=8;  // pre-load mode
 		else if((Inp.held[INP_BUTTON_MENU_SELECT]==1)&&(mode==2)&&(action==5))
 		{
-			if(MessageBox("Are you sure you want to delete","this save?","",0)==0) action=13;  //delete slot with no preview
+			if(MenuMessageBox("Are you sure you want to delete","this save?","",0)==0) action=13;  //delete slot with no preview
 		}
 		//else if((Inp.held[INP_BUTTON_R]==1)&&(action==12)) action=3;  // preview slot mode
 		else if((Inp.held[INP_BUTTON_MENU_SELECT]==1)&&(mode==1)&&(action==12)) action=8;  //load slot with no preview
 		else if((Inp.held[INP_BUTTON_MENU_SELECT]==1)&&(mode==0)&&(action==12)) action=6;  //save slot with no preview
 		else if((Inp.held[INP_BUTTON_MENU_SELECT]==1)&&(mode==2)&&(action==12))
 		{
-			if(MessageBox("Are you sure you want to delete","this save?","",0)==0) action=13;  //delete slot with no preview
+			if(MenuMessageBox("Are you sure you want to delete","this save?","",0)==0) action=13;  //delete slot with no preview
 		}
 
 		PrintTile(currFB);
 		PrintTitle(currFB);
-		if(mode==SAVESTATE_MODE_SAVE) gp_drawString(6,35,10,"Save State",(unsigned short)RGB(31,0,0),framebuffer16[currFB]); 
-		if(mode==SAVESTATE_MODE_LOAD) gp_drawString(6,35,10,"Load State",(unsigned short)RGB(31,0,0),framebuffer16[currFB]); 
-		if(mode==SAVESTATE_MODE_DELETE) gp_drawString(6,35,12,"Delete State",(unsigned short)RGB(31,0,0),framebuffer16[currFB]); 
+		if(mode==SAVESTATE_MODE_SAVE) gp_drawString(6,35,10,"Save State",tTextColorTitle,framebuffer16[currFB]); 
+		if(mode==SAVESTATE_MODE_LOAD) gp_drawString(6,35,10,"Load State",tTextColorTitle,framebuffer16[currFB]); 
+		if(mode==SAVESTATE_MODE_DELETE) gp_drawString(6,35,12,"Delete State",tTextColorTitle,framebuffer16[currFB]); 
 		sprintf(text,"Press UP and DOWN to change save slot");
-		gp_drawString(12,230,strlen(text),text,(unsigned short)RGB(31,15,5),framebuffer16[currFB]);
+		gp_drawString(12,230,strlen(text),text,(unsigned short)MENU_RGB(31,15,5),framebuffer16[currFB]);
       
 		if(saveno==-1) 
 		{
@@ -996,54 +1206,55 @@ static int SaveStateSelect(int mode)
 		{
 			PrintBar(currFB,60-4);
 			sprintf(text,"SLOT %d",saveno);
-			gp_drawString(136,60,strlen(text),text,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+			gp_drawString(136,60,strlen(text),text,tTextColorItem,framebuffer16[currFB]);
 		}
       
 		switch(action)
 		{
 			case 1:
-				//gp_drawString(112,145,14,"Checking....",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				//gp_drawString(112,145,14,"Checking....",tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 2:
-				gp_drawString(144,145,4,"FREE",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(144,145,4,"FREE",tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 3:
-				gp_drawString(104,145,14,"Previewing....",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(104,145,14,"Previewing....",tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 4:
-				gp_drawString(88,145,18,"Previewing....fail",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(88,145,18,"Previewing....fail",tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 5: 
-				gp_drawString(112,145,17, "Not gonna happen!",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
-				if(mode==1) gp_drawString((320-(strlen(MENU_TEXT_LOAD_SAVESTATE)<<3))>>1,210,strlen(MENU_TEXT_LOAD_SAVESTATE), MENU_TEXT_LOAD_SAVESTATE,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
-				else if(mode==0) gp_drawString((320-(strlen(MENU_TEXT_OVERWRITE_SAVESTATE)<<3))>>1,210,strlen(MENU_TEXT_OVERWRITE_SAVESTATE), MENU_TEXT_OVERWRITE_SAVESTATE,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
-				else if(mode==2) gp_drawString((320-(strlen(MENU_TEXT_DELETE_SAVESTATE)<<3))>>1,210,strlen(MENU_TEXT_DELETE_SAVESTATE), MENU_TEXT_DELETE_SAVESTATE,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(112,145,17, "Not gonna happen!",tTextColorItem,framebuffer16[currFB]);
+				if(mode==1) gp_drawString((320-(strlen(MENU_TEXT_LOAD_SAVESTATE)<<3))>>1,210,strlen(MENU_TEXT_LOAD_SAVESTATE), MENU_TEXT_LOAD_SAVESTATE,tTextColorItem,framebuffer16[currFB]);
+				else if(mode==0) gp_drawString((320-(strlen(MENU_TEXT_OVERWRITE_SAVESTATE)<<3))>>1,210,strlen(MENU_TEXT_OVERWRITE_SAVESTATE), MENU_TEXT_OVERWRITE_SAVESTATE,tTextColorItem,framebuffer16[currFB]);
+				else if(mode==2) gp_drawString((320-(strlen(MENU_TEXT_DELETE_SAVESTATE)<<3))>>1,210,strlen(MENU_TEXT_DELETE_SAVESTATE), MENU_TEXT_DELETE_SAVESTATE,tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 6:
-				gp_drawString(124,145,9,"Saving...",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(124,145,9,"Saving...",tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 7:
-				gp_drawString(124,145,14,"Saving...Fail!",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(124,145,14,"Saving...Fail!",tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 8:
-				gp_drawString(116,145,11,"loading....",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(116,145,11,"loading....",tTextColorItem,framebuffer16[currFB]);
 				break;
 				case 9:
-				gp_drawString(116,145,15,"loading....Fail",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(116,145,15,"loading....Fail",tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 10:	
+
 				PrintBar(currFB,145-4);
-				gp_drawString(104,145,14,"Return To Menu",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(104,145,14,"Return To Menu",tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 12:
-				gp_drawString(124,145,9,"Slot used",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
-				//gp_drawString((320-(strlen(MENU_TEXT_PREVIEW_SAVESTATE)<<3))>>1,165,strlen(MENU_TEXT_PREVIEW_SAVESTATE),MENU_TEXT_PREVIEW_SAVESTATE,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
-				if(mode==1) gp_drawString((320-(strlen(MENU_TEXT_LOAD_SAVESTATE)<<3))>>1,175,strlen(MENU_TEXT_LOAD_SAVESTATE), MENU_TEXT_LOAD_SAVESTATE,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
-				else if(mode==0) gp_drawString((320-(strlen(MENU_TEXT_OVERWRITE_SAVESTATE)<<3))>>1,175,strlen(MENU_TEXT_OVERWRITE_SAVESTATE), MENU_TEXT_OVERWRITE_SAVESTATE,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
-				else if(mode==2) gp_drawString((320-(strlen(MENU_TEXT_DELETE_SAVESTATE)<<3))>>1,175,strlen(MENU_TEXT_DELETE_SAVESTATE), MENU_TEXT_DELETE_SAVESTATE,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(124,145,9,"Slot used",tTextColorItem,framebuffer16[currFB]);
+				//gp_drawString((320-(strlen(MENU_TEXT_PREVIEW_SAVESTATE)<<3))>>1,165,strlen(MENU_TEXT_PREVIEW_SAVESTATE),MENU_TEXT_PREVIEW_SAVESTATE,tTextColorItem,framebuffer16[currFB]);
+				if(mode==1) gp_drawString((320-(strlen(MENU_TEXT_LOAD_SAVESTATE)<<3))>>1,175,strlen(MENU_TEXT_LOAD_SAVESTATE), MENU_TEXT_LOAD_SAVESTATE,tTextColorItem,framebuffer16[currFB]);
+				else if(mode==0) gp_drawString((320-(strlen(MENU_TEXT_OVERWRITE_SAVESTATE)<<3))>>1,175,strlen(MENU_TEXT_OVERWRITE_SAVESTATE), MENU_TEXT_OVERWRITE_SAVESTATE,tTextColorItem,framebuffer16[currFB]);
+				else if(mode==2) gp_drawString((320-(strlen(MENU_TEXT_DELETE_SAVESTATE)<<3))>>1,175,strlen(MENU_TEXT_DELETE_SAVESTATE), MENU_TEXT_DELETE_SAVESTATE,tTextColorItem,framebuffer16[currFB]);
 				break;
 			case 13:
-				gp_drawString(116,145,11,"Deleting....",(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+				gp_drawString(116,145,11,"Deleting....",tTextColorItem,framebuffer16[currFB]);
 				break;
 		}
       
@@ -1062,11 +1273,15 @@ static int SaveStateSelect(int mode)
 				}
 				break;
 			case 3:
+				gp_setCpuspeed(MENU_FAST_CPU_SPEED);
 				LoadStateFile(saveState[saveno].fullFilename);
+				gp_setCpuspeed(MENU_CPU_SPEED);
 				action=5;
 				break;
 			case 6:
+				gp_setCpuspeed(MENU_FAST_CPU_SPEED);
 				SaveStateFile(saveState[saveno].fullFilename);
+				gp_setCpuspeed(MENU_CPU_SPEED);
 				saveState[saveno].inUse=1;
 				action=1;
 				break;
@@ -1098,14 +1313,15 @@ static int SaveStateSelect(int mode)
 static
 void RenderMenu(char *menuName, int menuCount, int menuSmooth, int menufocus)
 {
-	
 	int i=0;
 	char text[50];
 	unsigned short color=0;
 	PrintTile(currFB);
 	PrintTitle(currFB);
 
-	gp_drawString(6,35,strlen(menuName),menuName,(unsigned short)RGB(31,0,0),framebuffer16[currFB]); 
+	gp_setClipping(0, 0, 319, 239);
+	gp_drawString(6,35,strlen(menuName),menuName,tTextColorTitle,framebuffer16[currFB]); 
+	gp_setClipping(8, MENU_AREA_Y_START, SCREEN_WIDTH - 8, MENU_AREA_Y_END);
     
     // RRRRRGGGGGBBBBBI  gp32 color format
     for (i=0;i<menuCount;i++)
@@ -1116,22 +1332,22 @@ void RenderMenu(char *menuName, int menuCount, int menuSmooth, int menufocus)
       x=8;
       y+=112;
 
-      if (y<=48 || y>=232) continue;
+      if (y<= (MENU_AREA_Y_START - 8) || y>=232) continue;
       
       if (i==menufocus)
       {
-        color=(unsigned short)RGB(0,0,0);
-		PrintBar(currFB,y-4);
+        color=tTextColorFocus;
+	PrintBar(currFB,y-4);
       }
       else
       {
-        color=(unsigned short)RGB(31,31,31);
+        color=tTextColorItem;
       }
 
       sprintf(text,"%s",menutext[i]);
       gp_drawString(x,y,strlen(text),text,color,framebuffer16[currFB]);
     }
-
+    gp_setClipping(0, 0, 319, 239);
 }
 
 static
@@ -1307,17 +1523,20 @@ void SNESOptionsUpdateText(int menu_index)
 		break;
 		
 		case SNES_MENU_SOUND_RATE:
-			sprintf(menutext[SNES_MENU_SOUND_RATE],"Sound Rate: %d",(unsigned int)soundRates[snesMenuOptions.soundRate]);
+			if (snesMenuOptions.stereo)		
+				sprintf(menutext[SNES_MENU_SOUND_RATE],"Sound Rate: %d stereo",(unsigned int)soundRates[snesMenuOptions.soundRate]);
+			else
+				sprintf(menutext[SNES_MENU_SOUND_RATE],"Sound Rate: %d mono",(unsigned int)soundRates[snesMenuOptions.soundRate]);
 			break;
-		
+#if defined(__GP2X__) || defined(__WIZ__)	
 		case SNES_MENU_CPUSPEED:
 			sprintf(menutext[SNES_MENU_CPUSPEED],"Cpu Speed: %d",(unsigned int)cpuSpeedLookup[snesMenuOptions.cpuSpeed]);
 			break;
-			
+#endif			
 		case SNES_MENU_SOUND_VOL:
 			sprintf(menutext[SNES_MENU_SOUND_VOL],"Volume: %d",snesMenuOptions.volume);
 			break;
-			
+		
 		case SNES_MENU_FRAMESKIP:
 			switch(snesMenuOptions.frameSkip)
 			{
@@ -1356,11 +1575,11 @@ void SNESOptionsUpdateText(int menu_index)
 					break;
 			}
 			break;
-			
+#if defined(__GP2X__)			
 		case SNES_MENU_GAMMA:
 			sprintf(menutext[SNES_MENU_GAMMA],"Brightness: %d",snesMenuOptions.gamma+100);
 			break;
-			
+#endif		
 		case SNES_MENU_TRANSPARENCY:
 			switch(snesMenuOptions.transparency)
 			{
@@ -1400,11 +1619,15 @@ void SNESOptionsUpdateText(int menu_index)
 		case SNES_MENU_SET_ROMDIR:
 			sprintf(menutext[SNES_MENU_SET_ROMDIR],"Save Current Rom Directory");
 			break;
+		
+		case SNES_MENU_CLEAR_ROMDIR:
+			sprintf(menutext[SNES_MENU_CLEAR_ROMDIR],"Reset Default Rom Directory");
+			break;
 			
 		case SNES_MENU_RETURN:
 			sprintf(menutext[SNES_MENU_RETURN],"Back");
 			break;
-
+#if defined(__GP2X__) || defined(__WIZ__)
 		case SNES_MENU_RENDER_MODE:
 			switch(snesMenuOptions.renderMode)
 			{
@@ -1414,12 +1637,14 @@ void SNESOptionsUpdateText(int menu_index)
 				case RENDER_MODE_SCALED:
 					sprintf(menutext[SNES_MENU_RENDER_MODE],"Render Mode: Scaled");
 					break;
+				case RENDER_MODE_HORIZONTAL_SCALED:
+					sprintf(menutext[SNES_MENU_RENDER_MODE],"Render Mode: Horizontal Scaled");
+					break;
 				default:
 					sprintf(menutext[SNES_MENU_RENDER_MODE],"Render Mode: Unscaled");
 					break;
 			}
 			break;
-			
 		case SNES_MENU_ACTION_BUTTONS:
 			switch(snesMenuOptions.actionButtons)
 			{
@@ -1431,6 +1656,7 @@ void SNESOptionsUpdateText(int menu_index)
 					break;
 			}
 			break;
+#endif
 		case SNES_MENU_AUTO_SAVE_SRAM:
 			switch(snesMenuOptions.autoSram)
 			{
@@ -1440,31 +1666,281 @@ void SNESOptionsUpdateText(int menu_index)
 				case 1:
 					sprintf(menutext[SNES_MENU_AUTO_SAVE_SRAM],"Saving SRAM: Automatic");
 					break;
-			}
-			break;
-		case SNES_MENU_RAM_SETTINGS:
-			switch(snesMenuOptions.ramSettings)
-			{
-				case 0:
-					sprintf(menutext[SNES_MENU_RAM_SETTINGS],"RAM timing (Restart Required): NORMAL");
-					break;
-				case 1:
-					sprintf(menutext[SNES_MENU_RAM_SETTINGS],"RAM timing (Restart Required): CRAIG");
+				case 2:
+					sprintf(menutext[SNES_MENU_AUTO_SAVE_SRAM],"Saving SRAM: Manual + indicator");
 					break;
 			}
 			break;
-		case SNES_MENU_MMU_HACK:
-			switch(snesMenuOptions.mmuHack)
+		case SNES_MENU_EMULATION_TYPE:
+			switch(snesMenuOptions.asmspc700)
 			{
 				case 0:
-					sprintf(menutext[SNES_MENU_MMU_HACK],"MMU Hack (Restart Required): OFF");
+					sprintf(menutext[SNES_MENU_EMULATION_TYPE],"Emulation (Reset Required): Compatible");
 					break;
 				case 1:
-					sprintf(menutext[SNES_MENU_MMU_HACK],"MMU Hack (Restart Required): ON");
+					sprintf(menutext[SNES_MENU_EMULATION_TYPE],"Emulation (Reset Required): Fast");
 					break;
 			}
+			break;
+		case SNES_MENU_LOAD_ROM_ON_INIT:
+			switch(snesMenuOptions.loadOnInit)
+			{
+				case 0:
+					sprintf(menutext[SNES_MENU_LOAD_ROM_ON_INIT],"Load last played ROM at startup: OFF");
+					break;
+				case 1:
+					sprintf(menutext[SNES_MENU_LOAD_ROM_ON_INIT],"Load last played ROM at startup: ON");
+					break;
+			}
+			break;
+		case SNES_MENU_ADVANCED_HACKS:
+			sprintf(menutext[SNES_MENU_ADVANCED_HACKS],"Advanced hacks");
 			break;
 	}
+}
+
+static 
+void SNESHacksUpdateText(int menu_index)
+{
+	switch(menu_index)
+	{
+		case HACKS_MENU_SNESADVANCE_DAT:
+			if (snesMenuOptions.SpeedHacks)
+				sprintf(menutext[HACKS_MENU_SNESADVANCE_DAT],"Apply snesadvance.dat on ROM load: ON");
+			else
+				sprintf(menutext[HACKS_MENU_SNESADVANCE_DAT],"Apply snesadvance.dat on ROM load: OFF");
+			break;
+		case HACKS_MENU_AUDIO:
+			if(snesMenuOptions.soundHack)
+				sprintf(menutext[HACKS_MENU_AUDIO],"Audio Performance hack: ON");
+			else
+				sprintf(menutext[HACKS_MENU_AUDIO],"Audio Performance hack: OFF");
+		break;
+#ifdef __OLD_RASTER_FX__
+		case HACKS_MENU_DELAYED_RASTER_FX:
+			sprintf(menutext[HACKS_MENU_DELAYED_RASTER_FX], "Delayed Raster FX: %s", snesMenuOptions.delayedRasterFX ? "ON" : "OFF");
+			break;
+#endif
+		case HACKS_MENU_PALETTE:
+			if(snesMenuOptions.graphHacks & PPU_IGNORE_PALWRITE)
+				sprintf(menutext[HACKS_MENU_PALETTE],"Ignore Palette writes: ON");
+			else
+				sprintf(menutext[HACKS_MENU_PALETTE],"Ignore Palette writes: OFF");
+		break;
+		case HACKS_MENU_FIXEDCOL:
+			if(snesMenuOptions.graphHacks & PPU_IGNORE_FIXEDCOLCHANGES)
+				sprintf(menutext[HACKS_MENU_FIXEDCOL],"Ignore Fixed Colour: ON");
+			else
+				sprintf(menutext[HACKS_MENU_FIXEDCOL],"Ignore Fixed Colour: OFF");
+		break;
+		case HACKS_MENU_WINDOW:
+			if(snesMenuOptions.graphHacks & PPU_IGNORE_WINDOW)
+				sprintf(menutext[HACKS_MENU_WINDOW],"Ignore Windows clipping: ON");
+			else
+				sprintf(menutext[HACKS_MENU_WINDOW],"Ignore Windows clipping: OFF");
+		break;
+		case HACKS_MENU_ADDSUB:
+			if(snesMenuOptions.graphHacks & PPU_IGNORE_ADDSUB)
+				sprintf(menutext[HACKS_MENU_ADDSUB],"Ignore Add/Sub modes: ON");
+			else
+				sprintf(menutext[HACKS_MENU_ADDSUB],"Ignore Add/Sub modes: OFF");
+		break;
+		case HACKS_MENU_OBJ:
+			if(snesMenuOptions.graphHacks & GFX_IGNORE_OBJ)
+				sprintf(menutext[HACKS_MENU_OBJ],"Ignore objects layer: ON");
+			else
+				sprintf(menutext[HACKS_MENU_OBJ],"Ignore objects layer: OFF");
+		break;
+		case HACKS_MENU_BG0:
+			if(snesMenuOptions.graphHacks & GFX_IGNORE_BG0)
+				sprintf(menutext[HACKS_MENU_BG0],"Ignore background layer 0: ON");
+			else
+				sprintf(menutext[HACKS_MENU_BG0],"Ignore background layer 0: OFF");
+		break;
+		case HACKS_MENU_BG1:
+			if(snesMenuOptions.graphHacks & GFX_IGNORE_BG1)
+				sprintf(menutext[HACKS_MENU_BG1],"Ignore background layer 1: ON");
+			else
+				sprintf(menutext[HACKS_MENU_BG1],"Ignore background layer 1: OFF");
+		break;
+		case HACKS_MENU_BG2:
+			if(snesMenuOptions.graphHacks & GFX_IGNORE_BG2)
+				sprintf(menutext[HACKS_MENU_BG2],"Ignore background layer 2: ON");
+			else
+				sprintf(menutext[HACKS_MENU_BG2],"Ignore background layer 2: OFF");
+		break;
+		case HACKS_MENU_BG3:
+			if(snesMenuOptions.graphHacks & GFX_IGNORE_BG3)
+				sprintf(menutext[HACKS_MENU_BG3],"Ignore background layer 3: ON");
+			else
+				sprintf(menutext[HACKS_MENU_BG3],"Ignore background layer 3: OFF");
+		break;
+		case HACKS_MENU_RETURN:
+			sprintf(menutext[HACKS_MENU_RETURN],"Back");
+			break;
+
+
+	}
+}
+
+static
+void SNESHacksUpdateText_All()
+{
+	SNESHacksUpdateText(HACKS_MENU_AUDIO);
+	SNESHacksUpdateText(HACKS_MENU_SNESADVANCE_DAT);
+#ifdef __OLD_RASTER_FX__
+	SNESHacksUpdateText(HACKS_MENU_DELAYED_RASTER_FX);
+#endif
+	SNESHacksUpdateText(HACKS_MENU_PALETTE);
+	SNESHacksUpdateText(HACKS_MENU_FIXEDCOL);
+	SNESHacksUpdateText(HACKS_MENU_WINDOW);
+	SNESHacksUpdateText(HACKS_MENU_ADDSUB);
+	SNESHacksUpdateText(HACKS_MENU_OBJ);
+	SNESHacksUpdateText(HACKS_MENU_BG0);
+	SNESHacksUpdateText(HACKS_MENU_BG1);
+	SNESHacksUpdateText(HACKS_MENU_BG2);
+	SNESHacksUpdateText(HACKS_MENU_BG3);
+	SNESHacksUpdateText(HACKS_MENU_RETURN);
+}
+
+static
+int SNESHacksMenu(void)
+{
+	int menuExit=0,menuCount=HACKS_MENU_COUNT,menufocus=0,menuSmooth=0;
+	int action=0;
+	int subaction=0;
+
+	memset(&headerDone,0,sizeof(headerDone));
+  
+	//Update all items
+	SNESHacksUpdateText_All();
+	
+	while (!menuExit)
+	{
+		InputUpdate(0);
+
+		// Change which rom is focused on:
+		if (Inp.repeat[INP_BUTTON_UP]) menufocus--; // Up
+		if (Inp.repeat[INP_BUTTON_DOWN]) menufocus++; // Down
+    
+		if (Inp.held[INP_BUTTON_MENU_CANCEL]==1 ) menuExit=1;
+    
+		if (menufocus>menuCount-1)
+		{
+			menufocus=0;
+			menuSmooth=(menufocus<<8)-1;
+		}   
+		else if (menufocus<0) 
+		{
+			menufocus=menuCount-1;
+			menuSmooth=(menufocus<<8)-1;
+
+		}
+
+		if (Inp.held[INP_BUTTON_LEFT]==1||
+			  Inp.held[INP_BUTTON_RIGHT]==1||
+			  Inp.repeat[INP_BUTTON_LEFT]||
+			  Inp.repeat[INP_BUTTON_RIGHT])
+		{
+			switch(menufocus)
+			{
+				case HACKS_MENU_SNESADVANCE_DAT:
+					snesMenuOptions.SpeedHacks^=1;
+					SNESHacksUpdateText(HACKS_MENU_SNESADVANCE_DAT);
+					break;
+				case HACKS_MENU_AUDIO:
+					snesMenuOptions.soundHack^=1;
+					SNESHacksUpdateText(HACKS_MENU_AUDIO);
+					break;
+#ifdef __OLD_RASTER_FX__
+				case HACKS_MENU_DELAYED_RASTER_FX:
+					snesMenuOptions.delayedRasterFX ^= 1;
+					SNESHacksUpdateText(HACKS_MENU_DELAYED_RASTER_FX);
+					break;
+#endif
+				case HACKS_MENU_PALETTE:
+					if (snesMenuOptions.graphHacks & PPU_IGNORE_PALWRITE)
+						snesMenuOptions.graphHacks &= ~PPU_IGNORE_PALWRITE;
+					else
+						snesMenuOptions.graphHacks |= PPU_IGNORE_PALWRITE;					
+					SNESHacksUpdateText(HACKS_MENU_PALETTE);
+					break;
+				case HACKS_MENU_FIXEDCOL:
+					if (snesMenuOptions.graphHacks & PPU_IGNORE_FIXEDCOLCHANGES)
+						snesMenuOptions.graphHacks &= ~PPU_IGNORE_FIXEDCOLCHANGES;
+					else
+						snesMenuOptions.graphHacks |= PPU_IGNORE_FIXEDCOLCHANGES;					
+					SNESHacksUpdateText(HACKS_MENU_FIXEDCOL);
+					break;
+				case HACKS_MENU_WINDOW:
+					if (snesMenuOptions.graphHacks & PPU_IGNORE_WINDOW)
+						snesMenuOptions.graphHacks &= ~PPU_IGNORE_WINDOW;
+					else
+						snesMenuOptions.graphHacks |= PPU_IGNORE_WINDOW;					
+					SNESHacksUpdateText(HACKS_MENU_WINDOW);
+					break;
+				case HACKS_MENU_ADDSUB:
+					if (snesMenuOptions.graphHacks & PPU_IGNORE_ADDSUB)
+						snesMenuOptions.graphHacks &= ~PPU_IGNORE_ADDSUB;
+					else
+						snesMenuOptions.graphHacks |= PPU_IGNORE_ADDSUB;					
+					SNESHacksUpdateText(HACKS_MENU_ADDSUB);
+
+					break;
+				case HACKS_MENU_OBJ:
+					if (snesMenuOptions.graphHacks & GFX_IGNORE_OBJ)
+						snesMenuOptions.graphHacks &= ~GFX_IGNORE_OBJ;
+					else
+						snesMenuOptions.graphHacks |= GFX_IGNORE_OBJ;					
+					SNESHacksUpdateText(HACKS_MENU_OBJ);
+					break;
+				case HACKS_MENU_BG0:
+					if (snesMenuOptions.graphHacks & GFX_IGNORE_BG0)
+						snesMenuOptions.graphHacks &= ~GFX_IGNORE_BG0;
+					else
+						snesMenuOptions.graphHacks |= GFX_IGNORE_BG0;					
+					SNESHacksUpdateText(HACKS_MENU_BG0);
+					break;
+				case HACKS_MENU_BG1:
+					if (snesMenuOptions.graphHacks & GFX_IGNORE_BG1)
+						snesMenuOptions.graphHacks &= ~GFX_IGNORE_BG1;
+					else
+						snesMenuOptions.graphHacks |= GFX_IGNORE_BG1;					
+					SNESHacksUpdateText(HACKS_MENU_BG1);
+					break;
+				case HACKS_MENU_BG2:
+					if (snesMenuOptions.graphHacks & GFX_IGNORE_BG2)
+						snesMenuOptions.graphHacks &= ~GFX_IGNORE_BG2;
+					else
+						snesMenuOptions.graphHacks |= GFX_IGNORE_BG2;					
+					SNESHacksUpdateText(HACKS_MENU_BG2);
+					break;
+				case HACKS_MENU_BG3:
+					if (snesMenuOptions.graphHacks & GFX_IGNORE_BG3)
+						snesMenuOptions.graphHacks &= ~GFX_IGNORE_BG3;
+					else
+						snesMenuOptions.graphHacks |= GFX_IGNORE_BG3;					
+					SNESHacksUpdateText(HACKS_MENU_BG3);
+					break;
+			}
+		}
+		if (Inp.held[INP_BUTTON_MENU_SELECT]==1)
+		{
+			switch(menufocus)
+			{
+				case HACKS_MENU_RETURN:
+					menuExit=1;
+					break;
+			}	
+		}
+		// Draw screen:
+		menuSmooth=menuSmooth*7+(menufocus<<8); menuSmooth>>=3;
+		RenderMenu("SNES Advanced Hacks", menuCount,menuSmooth,menufocus);
+		MenuFlip();
+       
+	}
+  
+  return action;
 }
 
 static
@@ -1472,12 +1948,10 @@ void SNESOptionsUpdateText_All()
 {
 	SNESOptionsUpdateText(SNES_MENU_SOUND);
 	SNESOptionsUpdateText(SNES_MENU_SOUND_RATE);
-	SNESOptionsUpdateText(SNES_MENU_CPUSPEED);
 	SNESOptionsUpdateText(SNES_MENU_SOUND_VOL);
 	SNESOptionsUpdateText(SNES_MENU_FRAMESKIP);
 	SNESOptionsUpdateText(SNES_MENU_REGION);
 	SNESOptionsUpdateText(SNES_MENU_FPS);
-	SNESOptionsUpdateText(SNES_MENU_GAMMA);
 	SNESOptionsUpdateText(SNES_MENU_TRANSPARENCY);
 	SNESOptionsUpdateText(SNES_MENU_LOAD_GLOBAL);
 	SNESOptionsUpdateText(SNES_MENU_SAVE_GLOBAL);
@@ -1486,12 +1960,20 @@ void SNESOptionsUpdateText_All()
 	SNESOptionsUpdateText(SNES_MENU_SAVE_CURRENT);
 	SNESOptionsUpdateText(SNES_MENU_DELETE_CURRENT);
 	SNESOptionsUpdateText(SNES_MENU_SET_ROMDIR);
+	SNESOptionsUpdateText(SNES_MENU_CLEAR_ROMDIR);
 	SNESOptionsUpdateText(SNES_MENU_RETURN);
-	SNESOptionsUpdateText(SNES_MENU_ACTION_BUTTONS);
+#if defined(__GP2X__) || defined(__WIZ__)
 	SNESOptionsUpdateText(SNES_MENU_RENDER_MODE);
+	SNESOptionsUpdateText(SNES_MENU_CPUSPEED);
+	SNESOptionsUpdateText(SNES_MENU_ACTION_BUTTONS);
+#endif
+#if defined(__GP2X__)
+	SNESOptionsUpdateText(SNES_MENU_GAMMA);
+#endif
+	SNESOptionsUpdateText(SNES_MENU_EMULATION_TYPE);
 	SNESOptionsUpdateText(SNES_MENU_AUTO_SAVE_SRAM);
-	SNESOptionsUpdateText(SNES_MENU_RAM_SETTINGS);
-	SNESOptionsUpdateText(SNES_MENU_MMU_HACK);
+	SNESOptionsUpdateText(SNES_MENU_LOAD_ROM_ON_INIT);
+	SNESOptionsUpdateText(SNES_MENU_ADVANCED_HACKS);
 }
 
 static
@@ -1541,13 +2023,33 @@ int SNESOptionsMenu(void)
 				case SNES_MENU_SOUND_RATE:
 					if (Inp.held[INP_BUTTON_RIGHT]==1||Inp.repeat[INP_BUTTON_RIGHT])
 					{
+						if (!snesMenuOptions.stereo)
+							snesMenuOptions.stereo = 1;
+						else
+						{
 						snesMenuOptions.soundRate++;
+							snesMenuOptions.stereo = 0;
+						}
+#if defined(__WIZ__)
+						if(snesMenuOptions.soundRate>2) snesMenuOptions.soundRate=0;
+#else
 						if(snesMenuOptions.soundRate>4) snesMenuOptions.soundRate=0;
+#endif
 					}
 					else
 					{
-						snesMenuOptions.soundRate--;
+						if (snesMenuOptions.stereo)
+							snesMenuOptions.stereo = 0;
+						else
+						{
+							snesMenuOptions.soundRate--;
+							snesMenuOptions.stereo = 1;
+						}
+#if defined(__WIZ__)
+						if(snesMenuOptions.soundRate>2) snesMenuOptions.soundRate=2;
+#else
 						if(snesMenuOptions.soundRate>4) snesMenuOptions.soundRate=4;
+#endif
 					}
 					SNESOptionsUpdateText(SNES_MENU_SOUND_RATE);
 					break;
@@ -1564,19 +2066,21 @@ int SNESOptionsMenu(void)
 					}
 					SNESOptionsUpdateText(SNES_MENU_SOUND_VOL);
 					break;
+#if defined(__GP2X__) || defined(__WIZ__)
 				case SNES_MENU_CPUSPEED:
 					if (Inp.held[INP_BUTTON_RIGHT]==1||Inp.repeat[INP_BUTTON_RIGHT])
 					{
 						snesMenuOptions.cpuSpeed++;
-						if(snesMenuOptions.cpuSpeed>40) snesMenuOptions.cpuSpeed=0;
+						if(snesMenuOptions.cpuSpeed>45) snesMenuOptions.cpuSpeed=0;
 					}
 					else
 					{
 						snesMenuOptions.cpuSpeed--;
-						if(snesMenuOptions.cpuSpeed>40) snesMenuOptions.cpuSpeed=0;
+						if(snesMenuOptions.cpuSpeed>45) snesMenuOptions.cpuSpeed=45;
 					}
 					SNESOptionsUpdateText(SNES_MENU_CPUSPEED);
 					break;
+#endif
 				case SNES_MENU_FRAMESKIP:
 					if (Inp.held[INP_BUTTON_RIGHT]==1||Inp.repeat[INP_BUTTON_RIGHT])
 					{
@@ -1607,6 +2111,7 @@ int SNESOptionsMenu(void)
 					snesMenuOptions.showFps^=1;
 					SNESOptionsUpdateText(SNES_MENU_FPS);
 					break;
+#if defined(__GP2X__)
 				case SNES_MENU_GAMMA:
 					if (Inp.held[INP_BUTTON_RIGHT]==1||Inp.repeat[INP_BUTTON_RIGHT])
 					{
@@ -1621,36 +2126,60 @@ int SNESOptionsMenu(void)
 					set_gamma(snesMenuOptions.gamma+100);
 					SNESOptionsUpdateText(SNES_MENU_GAMMA);
 					break;
+#endif
+#if defined(__GP2X__) || defined(__WIZ__)
 				case SNES_MENU_ACTION_BUTTONS:
 					snesMenuOptions.actionButtons^=1;
 					SNESOptionsUpdateText(SNES_MENU_ACTION_BUTTONS);
 					break;
+#endif
 				case SNES_MENU_TRANSPARENCY:
 					snesMenuOptions.transparency^=1;
 					SNESOptionsUpdateText(SNES_MENU_TRANSPARENCY);
 					break;
+#if defined(__GP2X__) || defined(__WIZ__)
 				case SNES_MENU_RENDER_MODE:
-					snesMenuOptions.renderMode^=1;
+					if (Inp.held[INP_BUTTON_RIGHT]==1||Inp.repeat[INP_BUTTON_RIGHT])
+					{
+						snesMenuOptions.renderMode++;
+						if (snesMenuOptions.renderMode > RENDER_MODE_HORIZONTAL_SCALED)
+							snesMenuOptions.renderMode = RENDER_MODE_UNSCALED;
+					}
+					else
+					{
+						snesMenuOptions.renderMode--;
+						if (snesMenuOptions.renderMode > RENDER_MODE_HORIZONTAL_SCALED)
+							snesMenuOptions.renderMode = RENDER_MODE_HORIZONTAL_SCALED;
+					}
 					SNESOptionsUpdateText(SNES_MENU_RENDER_MODE);
 					break;
+#endif
 				case SNES_MENU_AUTO_SAVE_SRAM:
-					snesMenuOptions.autoSram^=1;
+					//snesMenuOptions.autoSram^=1;
+					if ((++snesMenuOptions.autoSram) > 2) snesMenuOptions.autoSram = 0;
 					SNESOptionsUpdateText(SNES_MENU_AUTO_SAVE_SRAM);
 					break;
-				case SNES_MENU_RAM_SETTINGS:
-					snesMenuOptions.ramSettings^=1;
-					SNESOptionsUpdateText(SNES_MENU_RAM_SETTINGS);
+				case SNES_MENU_EMULATION_TYPE:
+					snesMenuOptions.asmspc700^=1;
+					SNESOptionsUpdateText(SNES_MENU_EMULATION_TYPE);
 					break;
-				case SNES_MENU_MMU_HACK:
-					snesMenuOptions.mmuHack^=1;
-					SNESOptionsUpdateText(SNES_MENU_MMU_HACK);
+				case SNES_MENU_LOAD_ROM_ON_INIT:
+					snesMenuOptions.loadOnInit ^= 1;
+					SNESOptionsUpdateText(SNES_MENU_LOAD_ROM_ON_INIT);				
 					break;
+
 			}
 		}
 		if (Inp.held[INP_BUTTON_MENU_SELECT]==1)
 		{
 			switch(menufocus)
 			{
+				case SNES_MENU_ADVANCED_HACKS:
+					memset(&headerDone,0,sizeof(headerDone));
+					subaction = SNESHacksMenu();
+					memset(&headerDone,0,sizeof(headerDone));
+					SNESOptionsUpdateText_All();
+					break;
 				case SNES_MENU_LOAD_GLOBAL:
 					LoadMenuOptions(snesOptionsDir, MENU_OPTIONS_FILENAME, MENU_OPTIONS_EXT, (char*)&snesMenuOptions, sizeof(snesMenuOptions),1);
 					SNESOptionsUpdateText_All();
@@ -1684,6 +2213,10 @@ int SNESOptionsMenu(void)
 					SaveMenuOptions(snesOptionsDir, DEFAULT_ROM_DIR_FILENAME, DEFAULT_ROM_DIR_EXT, romDir, strlen(romDir),1);
 					strcpy(snesRomDir,romDir);
 					break;
+				case SNES_MENU_CLEAR_ROMDIR:
+					DeleteMenuOptions(snesOptionsDir, DEFAULT_ROM_DIR_FILENAME, DEFAULT_ROM_DIR_EXT,1);
+					strcpy(snesRomDir,currentWorkingDir);
+					break;
 				case SNES_MENU_RETURN:
 					menuExit=1;
 					break;
@@ -1699,14 +2232,16 @@ int SNESOptionsMenu(void)
   return action;
 }
 
-static
-void MainMenuUpdateText(void)
+static int screenshotSaved;
+static void MainMenuUpdateText(void)
 {
 	sprintf(menutext[MAIN_MENU_ROM_SELECT],"Select Rom");
 	sprintf(menutext[MAIN_MENU_MANAGE_SAVE_STATE],"Manage Save States");
 	sprintf(menutext[MAIN_MENU_SAVE_SRAM],"Save SRAM");
+	if (!screenshotSaved) sprintf(menutext[MAIN_MENU_SAVE_SCREENSHOT],"Save Screenshot");
+	else sprintf(menutext[MAIN_MENU_SAVE_SCREENSHOT],"[Screenshot already saved]");
 	sprintf(menutext[MAIN_MENU_SNES_OPTIONS],"SNES Options");
-	sprintf(menutext[MAIN_MENU_RESET_GAME	],"Reset Game");
+	sprintf(menutext[MAIN_MENU_RESET_GAME],"Reset Game");
 	sprintf(menutext[MAIN_MENU_EXIT_APP],"Exit Application");
 	sprintf(menutext[MAIN_MENU_RETURN],"Return To Game");
 }
@@ -1717,13 +2252,16 @@ int MainMenu(int prevaction)
 	int menuExit=0,menuCount=MAIN_MENU_COUNT,menufocus=0,menuSmooth=0;
 	int action=prevaction;
 	int subaction=0;
-			
+	screenshotSaved = 0;	
+		
 	gp_setCpuspeed(MENU_CPU_SPEED);
 	
-	gp_initGraphics(16,currFB,snesMenuOptions.mmuHack);
+	gp_initGraphics(16,currFB,1);
 	gp_clearFramebuffer16((unsigned short*)framebuffer16[currFB],0x0);
 	MenuFlip();
-	gp2x_video_RGB_setscaling(320,240);
+#if !defined(__WIZ__)
+	gp_video_RGB_setscaling(320,240);
+#endif
 	
 	memset(&headerDone,0,sizeof(headerDone));
 	MainMenuUpdateText();
@@ -1797,6 +2335,15 @@ int MainMenu(int prevaction)
 					memset(&headerDone,0,sizeof(headerDone));
 					MainMenuUpdateText();
 					break;
+				case MAIN_MENU_SAVE_SCREENSHOT:
+					if (!screenshotSaved) {
+						ShowMessage("Saving screenshot...", 1);
+						if (saveScreenShot() == 0) {
+							screenshotSaved = 1;
+							MainMenuUpdateText();
+						}
+					} 
+					break;
 				case MAIN_MENU_RESET_GAME	:
 					if(currentRomFilename[0]!=0)
 					{
@@ -1826,6 +2373,7 @@ int MainMenu(int prevaction)
 		RenderMenu("Main Menu", menuCount,menuSmooth,menufocus);
 		MenuFlip();
        
+
 	}
 	
   WaitForButtonsUp();

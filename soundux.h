@@ -76,27 +76,28 @@ typedef struct {
 EXTERN_C SoundStatus so;
 
 typedef struct {
-    int state;
-    int type;
-    short volume_left;
-    short volume_right;
-    uint32 hertz;
-    uint32 frequency;
-    uint32 count;
-    bool8 loop;
-    int envx;
-    short left_vol_level;
-    short right_vol_level;
-    short envx_target;
-    unsigned long int env_error;
-    unsigned long erate;
-    int direction;
-    unsigned long attack_rate;
-    unsigned long decay_rate;
-    unsigned long sustain_rate;
-    unsigned long release_rate;
-    unsigned long sustain_level;
-    signed short sample;
+    int state;			// 0x00
+    int type;			// 0x04
+    short volume_left;		// 0x08
+    short volume_right;		// 0x0A
+    uint32 hertz;		// 0x0C
+    uint32 frequency;		// 0x10
+    uint32 count;		// 0x14
+    bool32 loop;		// 0x18
+    int envx;			// 0x1C
+    short left_vol_level;	// 0x20	
+    short right_vol_level;	// 0x22
+    short envx_target;		// 0x24
+    short padding;		// 0x26
+    unsigned long int env_error;	// 0x28
+    unsigned long erate;		// 0x2C
+    int direction;			// 0x30
+    unsigned long attack_rate;		// 0x34
+    unsigned long decay_rate;		// 0x38
+    unsigned long sustain_rate;		// 0x3C
+    unsigned long release_rate;		// 0x40
+    unsigned long sustain_level;	// 0x44
+    signed short sample;		// 0x48
     signed short decoded [16];
     signed short previous16 [2];
     signed short *block;
@@ -122,24 +123,25 @@ typedef struct {
 	short gaussian[8];
 	int   g_index;
 	unsigned short last_valid_header;
+	uint8 padding2[256-212];	// Last time I checked it, it was 212 bytes long
 } Channel;
 
 typedef struct
 {
-    short master_volume_left;
-    short master_volume_right;
-    short echo_volume_left;
-    short echo_volume_right;
-    int echo_enable;
-    int echo_feedback;
-    int echo_ptr;
-    int echo_buffer_size;
-    int echo_write_enabled;
-    int echo_channel_enable;
-    int pitch_mod;
+    short master_volume_left;  // 0x00
+    short master_volume_right; // 0x02 
+    short echo_volume_left;    // 0x04	
+    short echo_volume_right;	// 0x06
+    int echo_enable;		// 0x08
+    int echo_feedback;		// 0x0C
+    int echo_ptr;		// 0x10
+    int echo_buffer_size;	// 0x14
+    int echo_write_enabled;	// 0x18
+    int echo_channel_enable;	// 0x1C
+    int pitch_mod;		// 0x20
     // Just incase they are needed in the future, for snapshot compatibility.
-    uint32 dummy [3];
-    Channel channels [NUM_CHANNELS];
+    uint32 dummy [3];		// 0x24, 0x28, 0x2C
+    Channel channels [NUM_CHANNELS];	// 0x30
     bool8 no_filter;
     int master_volume [2];
     int echo_volume [2];

@@ -13,26 +13,25 @@ extern "C" {
 #include <errno.h>
 
 #ifdef __GIZ__
-#include <sys/wcetypes.h>
-#include <sys/wcefile.h>
-#include <KGSDK.h>
-#include <Framework.h>
-#include <Framework2D.h>
-#include "giz_kgsdk.h"
-
-#define DIR_SEPERATOR	"\\"
+#define DIR_SEP	"\\"
+#define DIR_SEP_BAD "/"	
 #define SYSTEM_DIR		"\\SD Card\\DrPocketSnes"
+#else
+	#ifdef __GP2X__
+		#include "gp2x_sdk.h"
+	#endif
+	#ifdef __WIZ__
+	 	#ifdef __CAANOO__
+			#include "caanoo_sdk.h"
+		#else
+			#include "wiz_sdk.h"
+		#endif
+	#endif
+
+	#define DIR_SEP	"/"
+	#define DIR_SEP_BAD "\\"	
+	#define SYSTEM_DIR		"/mnt/sd/DrPocketSnes"
 #endif
-
-#ifdef __GP2X__
-#include "gp2x_sdk.h"
-
-#define DIR_SEPERATOR	"/"
-#define SYSTEM_DIR		"/mnt/sd/DrPocketSnes"
-#endif
-
-
-
 
 #define SNES_OPTIONS_DIR		"options"
 #define SNES_SRAM_DIR			"sram"
@@ -56,76 +55,151 @@ extern "C" {
 #define SAVESTATE_MODE_DELETE			2
 
 #define SNES_OPTIONS_VER 			1
-#define DRSNES_VERSION				"version 9"
+#define PSVER	"7.2.0"
+#ifdef ASMCPU
+	#define DRSNES_VERSION				"v " PSVER " fast"
+#else
+	#define DRSNES_VERSION				"v " PSVER " compatible"
+#endif
 
 #define ROM_SIZE 		0x500000 //ssf2(40mbits)
-#define RGB(r,g,b) 		((r) << 11 | (g) << 6 | (b) << 0 )
+#define MENU_RGB(r,g,b) 		((r) << 11 | (g) << 6 | (b) << 0 )
+#define COLOR_TITLE		MENU_RGB(31, 0, 0)
+#define COLOR_FOCUS		MENU_RGB(0, 0, 0)
+#define COLOR_ITEM		MENU_RGB(31, 31, 31)
+#define COLOR_VERSION		MENU_RGB(0, 0, 31)
 #define MAX_ROMS		3000
 #define MAX_CPU			39
+#ifndef MAX_PATH
 #define MAX_PATH    			255
+#endif
 
-#define MENU_CPU_SPEED 			100
-#define MENU_FAST_CPU_SPEED		200
+#if defined(__WIZ__)
+	#ifdef	__CAANOO__
+		#define MENU_CPU_SPEED 			300
+	#else
+		#define MENU_CPU_SPEED 			120
+	#endif
+	#define MENU_FAST_CPU_SPEED		300
+#else
+	#define MENU_CPU_SPEED 			66
+	#define MENU_FAST_CPU_SPEED		200
+#endif
+enum  FILE_TYPE_ENUM
+{
+	FILE_TYPE_FILE = 0,
+	FILE_TYPE_DIRECTORY
+};
 
-#define FILE_TYPE_FILE								0
-#define FILE_TYPE_DIRECTORY							1
+enum  MAIN_MENU_ENUM
+{
+	MAIN_MENU_RETURN = 0,
+	MAIN_MENU_ROM_SELECT,
+	MAIN_MENU_MANAGE_SAVE_STATE,
+	MAIN_MENU_SAVE_SRAM,
+	MAIN_MENU_SAVE_SCREENSHOT,
+	MAIN_MENU_SNES_OPTIONS,
+	MAIN_MENU_RESET_GAME,
+	MAIN_MENU_EXIT_APP,
+	MAIN_MENU_COUNT
+};
 
-#define MAIN_MENU_RETURN							0
-#define MAIN_MENU_ROM_SELECT						1
-#define MAIN_MENU_MANAGE_SAVE_STATE					2
-#define MAIN_MENU_SAVE_SRAM							3
-#define MAIN_MENU_SNES_OPTIONS						4
-#define MAIN_MENU_RESET_GAME						5
-#define MAIN_MENU_EXIT_APP							6
-#define MAIN_MENU_COUNT								7
+enum  LOAD_ROM_ENUM
+{
+	LOAD_ROM_MENU_SNES = 0,
+	LOAD_ROM_MENU_RETURN,
+	LOAD_ROM_MENU_COUNT
+};
 
-#define LOAD_ROM_MENU_SNES							0
-#define LOAD_ROM_MENU_RETURN						1
-#define LOAD_ROM_MENU_COUNT							2
+enum SNES_MENU_ENUM
+{
+	SNES_MENU_SOUND = 0,
+	SNES_MENU_SOUND_RATE,
+	SNES_MENU_SOUND_VOL,
+	SNES_MENU_FRAMESKIP,
+	SNES_MENU_REGION,
+	SNES_MENU_FPS,
+	SNES_MENU_TRANSPARENCY,
+#if defined(__GP2X__)
+	SNES_MENU_CPUSPEED,
+	SNES_MENU_RENDER_MODE,
+	SNES_MENU_GAMMA,
+	SNES_MENU_ACTION_BUTTONS,
+#endif
+#if defined(__WIZ__)
+	SNES_MENU_CPUSPEED,
+	SNES_MENU_RENDER_MODE,
+	SNES_MENU_ACTION_BUTTONS,
+#endif
+	SNES_MENU_EMULATION_TYPE,
+	SNES_MENU_LOAD_ROM_ON_INIT,
+	SNES_MENU_ADVANCED_HACKS,
+	SNES_MENU_AUTO_SAVE_SRAM,
+	SNES_MENU_LOAD_GLOBAL,
+	SNES_MENU_SAVE_GLOBAL,
+	SNES_MENU_DELETE_GLOBAL,
+	SNES_MENU_LOAD_CURRENT,
+	SNES_MENU_SAVE_CURRENT,
+	SNES_MENU_DELETE_CURRENT,
+	SNES_MENU_SET_ROMDIR,
+	SNES_MENU_CLEAR_ROMDIR,
+	SNES_MENU_RETURN,
+	SNES_MENU_COUNT
+};
 
-#define SNES_MENU_SOUND								0
-#define SNES_MENU_SOUND_RATE              			1
-#define SNES_MENU_SOUND_VOL				       		2
-#define SNES_MENU_CPUSPEED				       		3
-#define SNES_MENU_FRAMESKIP               			4
-#define SNES_MENU_REGION							5
-#define SNES_MENU_ACTION_BUTTONS					6
-#define SNES_MENU_FPS                     			7
-#define SNES_MENU_GAMMA                   			8
-#define SNES_MENU_TRANSPARENCY            			9
-#define SNES_MENU_RENDER_MODE    					10
-#define SNES_MENU_RAM_SETTINGS    					11
-#define SNES_MENU_MMU_HACK		   					12
-#define SNES_MENU_AUTO_SAVE_SRAM	    			13
-#define SNES_MENU_LOAD_GLOBAL						14
-#define SNES_MENU_SAVE_GLOBAL						15
-#define SNES_MENU_DELETE_GLOBAL						16
-#define SNES_MENU_LOAD_CURRENT						17
-#define SNES_MENU_SAVE_CURRENT						18
-#define SNES_MENU_DELETE_CURRENT					19
-#define SNES_MENU_SET_ROMDIR						20
-#define SNES_MENU_RETURN							21
-#define SNES_MENU_COUNT								22
+enum SAVESTATE_MENU_ENUM
+{
+	SAVESTATE_MENU_LOAD = 0,
+	SAVESTATE_MENU_SAVE,
+	SAVESTATE_MENU_DELETE,
+	SAVESTATE_MENU_RETURN,
+	SAVESTATE_MENU_COUNT
+};
 
-#define SAVESTATE_MENU_LOAD							0
-#define SAVESTATE_MENU_SAVE							1
-#define SAVESTATE_MENU_DELETE						2
-#define SAVESTATE_MENU_RETURN						3
-#define SAVESTATE_MENU_COUNT						4
+enum HACKS_MENU_ENUM
+{
+	HACKS_MENU_AUDIO = 0,
+	HACKS_MENU_SNESADVANCE_DAT,
+#ifdef __OLD_RASTER_FX__
+	HACKS_MENU_DELAYED_RASTER_FX,
+#endif
+	HACKS_MENU_PALETTE,
+	HACKS_MENU_FIXEDCOL,
+	HACKS_MENU_WINDOW,
+	HACKS_MENU_ADDSUB,
+	HACKS_MENU_OBJ,
+	HACKS_MENU_BG0,
+	HACKS_MENU_BG1,
+	HACKS_MENU_BG2,
+	HACKS_MENU_BG3,
+	HACKS_MENU_RETURN,
+	HACKS_MENU_COUNT
+};
 
-#define SRAM_MENU_LOAD								0
-#define SRAM_MENU_SAVE								1
-#define SRAM_MENU_DELETE							2
-#define SRAM_MENU_RETURN							3
-#define SRAM_MENU_COUNT								4
+enum SRAM_MENU_ENUM
+{
+	SRAM_MENU_LOAD = 0,
+	SRAM_MENU_SAVE,
+	SRAM_MENU_DELETE,
+	SRAM_MENU_RETURN,
+	SRAM_MENU_COUNT,
+};
 
-#define EVENT_EXIT_APP								1
-#define EVENT_LOAD_SNES_ROM							2
-#define EVENT_RUN_SNES_ROM							3
-#define EVENT_RESET_SNES_ROM						4
+enum EVENT_TYPES
+{
+	EVENT_NONE = 0,
+	EVENT_EXIT_APP,
+	EVENT_LOAD_SNES_ROM,
+	EVENT_RUN_SNES_ROM,
+	EVENT_RESET_SNES_ROM
+};
 
-#define RENDER_MODE_UNSCALED						0
-#define RENDER_MODE_SCALED							1
+enum RENDER_MODE_ENUM
+{
+	RENDER_MODE_UNSCALED = 0,
+	RENDER_MODE_SCALED,
+	RENDER_MODE_HORIZONTAL_SCALED	
+};
 
 #define MENU_TILE_WIDTH      64
 #define MENU_TILE_HEIGHT     64
@@ -149,7 +223,7 @@ extern "C" {
 #define MENU_TEXT_PREVIEW_SAVESTATE 	"Press R to preview"
 #endif
 
-#ifdef __GP2X__
+#if defined(__GP2X__) || defined(__WIZ__)
 #define INP_BUTTON_MENU_SELECT			INP_BUTTON_B
 #define INP_BUTTON_MENU_CANCEL			INP_BUTTON_X
 #define INP_BUTTON_MENU_ENTER			INP_BUTTON_SELECT
@@ -218,6 +292,7 @@ void sync(void);
 void MenuPause(void);
 void MenuFlip(void);
 void SplitFilename(char *wholeFilename, char *filename, char *ext);
+void CheckDirSep(char *path);
 int FileSelect(int mode);
 int MainMenu(int prevAction);
 void PrintTitle(int flip);
@@ -230,14 +305,6 @@ extern int quickSavePresent;
 extern unsigned short cpuSpeedLookup[];
 extern float gammaLookup[];
 
-struct ROM_LIST_RECORD
-{
-	char filename[MAX_PATH+1];
-	char type;
-};
-
-extern struct ROM_LIST_RECORD romList[];
-extern int currentRomIndex;
 extern char currentRomFilename[];
 extern char romDir[];
 extern char snesRomDir[];
@@ -264,18 +331,17 @@ struct SNES_MENU_OPTIONS
   unsigned char ramSettings;
   unsigned char mmuHack;
   unsigned char region;
-  unsigned char spare14;
-  unsigned char spare15;
-  unsigned char spare16;
-  unsigned char spare17;
-  unsigned char spare18;
-  unsigned char spare19;
+  unsigned char soundHack;
+  unsigned short graphHacks;
+  unsigned char asmspc700;
+  unsigned char SpeedHacks;
+  unsigned char loadOnInit;
+  unsigned char delayedRasterFX;
   unsigned char spare1A;
   unsigned char spare1B;
   unsigned char spare1C;
   unsigned char spare1D;
   unsigned char spare1E;
-  unsigned char spare1F;
 };
 
 extern struct SNES_MENU_OPTIONS snesMenuOptions;

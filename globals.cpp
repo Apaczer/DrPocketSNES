@@ -38,6 +38,7 @@
  * Super NES and Super Nintendo Entertainment System are trademarks of
  * Nintendo Co., Limited and its subsidiary companies.
  */
+ extern "C" {
 #include "snes9x.h"
 #include "memmap.h"
 #include "ppu.h"
@@ -55,9 +56,11 @@
 #ifndef _SNESPPC
 //#include "netplay.h"
 #endif
-
+ }
 START_EXTERN_C
 char String[513];
+
+int (*APUMainLoop)(int);
 
 struct Missing missing;
 
@@ -77,10 +80,14 @@ struct SSettings Settings;
 
 struct SDSP1 DSP1;
 
+#ifdef USE_SA1
 struct SSA1Registers SA1Registers;
 
 struct SSA1 SA1;
 
+uint8 *SA1_Map [MEMMAP_NUM_BLOCKS];
+uint8 *SA1_WriteMap [MEMMAP_NUM_BLOCKS];
+#endif	
 
 uint8 *SRAM = NULL;
 uint8 *ROM = NULL;
@@ -92,19 +99,6 @@ long OpAddress = 0;
 CMemory Memory;
 
 struct SSNESGameFixes SNESGameFixes;
-
-#ifndef ASM_SPC700
-uint8 A1 = 0, A2 = 0, A3 = 0, A4 = 0, W1 = 0, W2 = 0, W3 = 0, W4 = 0;
-uint8 Ans8 = 0;
-uint16 Ans16 = 0;
-uint32 Ans32 = 0;
-uint8 Work8 = 0;
-uint16 Work16 = 0;
-uint32 Work32 = 0;
-signed char Int8 = 0;
-short Int16 = 0;
-long Int32 = 0;
-#endif
 
 END_EXTERN_C
 
@@ -255,7 +249,7 @@ uint8 Depths[8][4] =
 uint8 BGSizes [2] = {
     8, 16
 };
-uint16 DirectColourMaps [8][256];
+uint32 DirectColourMaps [8][256];
 
 long FilterValues[4][2] =
 {

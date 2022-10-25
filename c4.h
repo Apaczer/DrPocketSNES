@@ -76,6 +76,7 @@
 #define _C4_H_
 
 #include "port.h"
+#include "memmap.h"
 
 extern "C" {
 
@@ -104,6 +105,10 @@ void C4Op0D();
 extern int16 C4CosTable[];
 extern int16 C4SinTable[];
 
+}
+
+static inline uint8 *C4GetMemPointer(uint32 Address){
+    return (Memory.ROM + ((Address&0xff0000)>>1) + (Address&0x7fff));
 }
 
 #endif

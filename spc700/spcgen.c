@@ -1,6 +1,8 @@
 // notaz's SPC700 Emulator
 // (c) Copyright 2006 notaz, All rights reserved.
 //
+// Added some modifications by Bitrider 2010-2011.
+//
 // this is a rewrite of spc700.cpp in ARM asm, inspired by other asm CPU cores like
 // Cyclone and DrZ80. It is meant to be used in Snes9x emulator ports for ARM platforms.
 //
@@ -36,10 +38,13 @@
  * Nintendo Co., Limited and its subsidiary companies.
  */
 
+int one_apu_cycle[] = {13, 14, 15, 21};
+int current_cycles;
+
 
 // settings
-#define ONE_APU_CYCLE 15
-#define VERSION "0.11"
+#define VERSION "0.12"
+#define APU_EXECUTING_OFF	124
 //#define SPC_DEBUG
 
 
@@ -76,6 +81,9 @@ int S9xAPUCycles [256] =
 // stuff
 static FILE *AsmFile=NULL;
 static int opcode=0; // 0-0xff
+static int ibuffer = 0; 
+static char buff[1024];
+
 
 void ot(char *format, ...)
 {
@@ -92,6 +100,170 @@ void ot(char *format, ...)
   va_end(valist);
 }
 
+// ot buffered
+void otb(char *format, ...)
+{
+  va_list valist=NULL;
+  int i, len;
+
+  // notaz: stop me from leaving newlines in the middle of format string
+  // and generating bad code
+  for(i=0, len=strlen(format); i < len && format[i] != '\n'; i++);
+  if(i < len-1 && format[len-1] != '\n') printf(buff, "\nWARNING: possible improper newline placement:\n%s\n", format);
+
+  va_start(valist,format);
+  if (AsmFile) vsprintf(buff,format,valist);
+  ibuffer = 1;
+  va_end(valist);
+}
+
+void flush_buffer() {
+	if (ibuffer != 0) {
+		ot(buff);
+		ibuffer = 0; 
+	}		
+}
+
+// trashes: r0, r1, r2
+// return: r0
+// exit at label "2"
+static void GetAPUDSP() {
+	ot("GetAPUDSP:		\n");
+	ot("	ldrb	r1, [spc_ram, #0xf2]		\n");	
+	// r1 = IAPU.RAM [0xf2]		
+
+	ot("	mov	r0, #0\n");
+	ot("	and	r2, r1, #0X0f	\n");		
+	// switch (reg & 0xf) {
+	ot("	cmp	r2, #0x08\n");
+	ot("	bxeq	lr\n");	// APU_ENVX = 8	
+	// r1 = IAPU.RAM [0xf2] & 0x7f;		
+
+	ot("	cmp	r2, #0x09\n");		
+	// return APU.DSP [reg];
+	ot("	ldrne	r2, .APU_DSP\n");
+	ot("	and	r1, r1, #0X7f	\n");	// r1 = IAPU.RAM[0xf2] & 0x7f	
+	ot("	ldrneb	r0, [r2, r1]		\n");	
+	ot("	bxne	lr		\n");
+	
+	// APU_OUTX = 9
+	// if (SoundData.channels [reg >> 4].state == SOUND_SILENT) return 0;
+	// return ((SoundData.channels [reg >> 4].sample >> 8) | (SoundData.channels [reg >> 4].sample & 0x
+	ot("	ldr	r2, .SOUNDDATA_CHANNELS\n");	
+	ot("	mov	r1, r1, lsr #4		\n");
+	//ot("	add	r1, r2, r1, asl #8\n");	
+	//ot("	ldr	r0, [r1, #0x0]	\n");	// r0 = SoundData.channels[reg >> 4].state
+	ot("	ldr	r0, [r2, r1, asl #8]	\n");
+	ot("	add	r1, r2, r1, asl #8\n");
+	ot("	cmp	r0, #0		\n");	// SOUND_SILENT = 0
+	ot("	ldrneh	r1, [r1, #0x48]		\n"); // r1 = SoundData.channels[reg >> 4].sample
+	ot("	bxeq	lr		\n");
+
+	ot("	and	r0, r1, #0xff\n");
+	ot("	orr	r0, r0, r1, lsr #8\n");
+ 	ot("	bx	lr		\n");
+	
+	ot(".APU_DSP:\n");
+	ot("	.long	APU + 0x0b\n");	// &APU.DSP
+	ot(".SOUNDDATA_CHANNELS:\n");
+	ot("	.long	SoundData + 0x30\n"); // &SoundData.channels[0] 	
+}
+
+
+// bitrider
+// macros
+static void GetByte() {
+	ot("	mov	r1, r0\n");
+
+	ot("	ldrb	r0, [spc_ram, r1]		\n");
+	
+	ot("	cmp	r1, #0x0ff\n");
+	ot("	bhi	1f	\n");
+		
+	ot("	cmp	r1, #0xf3			\n");
+	ot("	addeq	lr, pc, #12	\n");	// lr = &ExitPoint
+	ot("	beq	GetAPUDSP			\n");
+
+	ot("	cmp	r1, #0xfd			\n");
+	ot("	movhs	r2, #0				\n");
+	ot("	strhsb	r2, [spc_ram, r1]		\n");
+	ot("1:\n");
+
+
+}
+
+// trashes: r0, r1, r14
+static void GetByteZ() {
+	ot("	mov	r1, r0\n");
+
+	ot("	cmp	r1, #0xf3			\n");
+	ot("	addeq	lr, pc, #20	\n");	// lr = &ExitPoint
+	ot("	beq	GetAPUDSP			\n");
+
+	ot("	ldr	r14, [context, #iapu_directpage]\n");
+	ot("	cmp	r1, #0xfd			\n");
+	ot("	ldrb	r0, [r14, r1]			\n");
+	ot("	movhs	r2, #0				\n");
+	ot("	strhsb	r2, [r14, r1]			\n");
+}
+
+static void SetByte(int restore) {
+	// Still should check for ShowRom
+	ot("	add	r2, r1, #40			\n");
+	ot("	tst	r2, #0x10000			\n");
+	ot("	bne	1f				\n");
+
+	ot("	bic	r2, r1, #0x0f\n");
+	ot("	cmp	r2, #0xf0\n");
+	ot("	strneb	r0, [spc_ram, r1]		\n");
+	ot("	bne	3f\n");
+
+	ot("	add	lr, pc, #20\n"); 
+	
+	ot("	cmp	r1, #0xf1			\n");
+	ot("	beq	S9xSetAPUControl		\n");	
+
+	ot("	cmp	r1, #0xf3			\n");   // pc + 4
+	ot("	beq	S9xSetAPUDSP			\n");	// pc + 8
+	ot("	b	S9xAPUSetByteFFtoF0		\n");	// pc + 12
+
+	ot("1:						\n");
+	ot("	bl	S9xAPUSetByteFFC0		\n");	
+	ot("	ldr   	spc_ram, [context, #iapu_ram]	\n");
+	ot("3:						\n");
+
+}
+
+static void SetByteZ(int restore) {
+	ot("	ldr	r2, [context, #iapu_directpage]	\n");
+	ot("	cmp	r2, spc_ram			\n");
+	ot("	bne	2f				\n");
+
+	ot("	cmp	r1, #0xf0			\n");
+	ot("	blo  	2f				\n");
+
+	ot("	cmp	r1, #0xfe			\n");
+	ot("	bhs	1f				\n");
+
+	if (restore) ot("	add	lr, pc, #16\n");
+	else ot("	add	lr, pc, #20\n");
+
+	ot("	cmp	r1, #0xf1			\n");
+	ot("	beq	S9xSetAPUControl		\n");
+
+	ot("	cmp	r1, #0xf3			\n");	// pc + 4
+	ot("	beq	S9xSetAPUDSP			\n");	// pc + 8
+	ot("	b	S9xAPUSetByteFFtoF0		\n");   // pc + 12
+	//ot("6:						\n");   // pc + 16
+	if (restore) {		
+		ot("   	ldr   	spc_ram, [context, #iapu_ram]	\n");
+		ot("	b	1f				\n");
+		}
+	ot("2:						\n");
+	ot("	strb	r0, [r2, r1]			\n");
+	ot("1:						\n");
+}
+
 
 //  r0-2: Temporary registers
 //  r3  : current opcode or temp
@@ -101,13 +273,16 @@ void ot(char *format, ...)
 //  r7  : Current PC
 //  r8  : YA
 //  r9  : P (nzzzzzzz ........ ........ NODBHIZC; nzzzzzzz - NZ flag in use (for a little speedup)
+
 //  r10 : X
 //  r11 : S
-//  r12 : temp
+//  r14 : temp
 //  lr  : RAM pointer
 
 static void PrintFramework()
 {
+
+
 #ifndef SPC_DEBUG
 	ot("  .extern IAPU\n");
 #else
@@ -119,8 +294,19 @@ static void PrintFramework()
 	ot("  .extern S9xAPUGetByteZ\n");
 	ot("  .extern S9xAPUSetByteZ\n\n");
 
+	// bitrider
+	ot("   .extern S9xGetAPUDSP\n");
+  	ot("   .extern S9xSetAPUDSP\n");
+  	ot("   .extern S9xSetAPUControl\n");	
+  	ot("   .extern S9xAPUSetByteFFC0\n");
+  	ot("   .extern S9xAPUSetByteFFtoF0\n");
+
 	ot("  .global spc700_execute @ int cycles\n");
-	ot("  .global Spc700JumpTab\n\n");
+	//ot("  .global Spc700JumpTab\n\n");
+	for (current_cycles=0; current_cycles < (sizeof(one_apu_cycle) / sizeof(int)); current_cycles++) 
+		ot("  .global Spc700JumpTab_%i\n", one_apu_cycle[current_cycles]);
+	ot("\n");	
+
 
 	ot("  opcode  .req r3\n");
 	ot("  cycles  .req r4\n");
@@ -131,7 +317,7 @@ static void PrintFramework()
 	ot("  spc_p   .req r9\n");
 	ot("  spc_x   .req r10\n");
 	ot("  spc_s   .req r11\n");
-	ot("  spc_ram .req lr\n\n");
+	ot("  spc_ram .req r12\n\n");
 
 	ot("  .equ iapu_directpage,    0x00\n");
 	ot("  .equ iapu_ram,           0x44\n");
@@ -148,11 +334,13 @@ static void PrintFramework()
 	ot("  .equ flag_o,             0x40\n");
 	ot("  .equ flag_n,             0x80\n\n");
 
+	ot("  .equ cpu_apu_executing,		%i \n\n", APU_EXECUTING_OFF);
 	// tmp
 //	ot("  .equ iapu_carry,         0x24\n");
 //	ot("  .equ iapu_overflow,      0x26\n\n");
 
 	ot("@ --------------------------- Framework --------------------------\n");
+	ot("	.align 	4\n");	
 	ot("spc700_execute: @ int cycles\n");
 
 	ot("  stmfd sp!,{r4-r11,lr}\n");
@@ -166,11 +354,11 @@ static void PrintFramework()
 	ot("  add   r0,context,#iapu_allregs_load\n");
 	ot("  ldmia r0,{opcodes,spc_pc,spc_ya,spc_p,spc_x,spc_ram}\n");
 
+	ot("  ldrb  opcode,[spc_pc],#1          @ Fetch first opcode\n");
 	ot("  mov   spc_s,spc_x,lsr #8\n");
 	ot("  and   spc_x,spc_x,#0xff\n");
 	ot("\n");
 
-	ot("  ldrb  opcode,[spc_pc],#1          @ Fetch first opcode\n");
 	ot("  ldr   pc,[opcodes,opcode,lsl #2]  @ Jump to opcode handler\n");
 	ot("\n\n");
 
@@ -186,6 +374,8 @@ static void PrintFramework()
 
 	ot("  .ltorg\n");
 	ot("\n");
+
+	GetAPUDSP();
 }
 
 
@@ -194,10 +384,20 @@ static void PrintFramework()
 // Trashes r0-r3
 static void MemHandler(int set, int z, int save)
 {
-	if(set) ot("  bl    S9xAPUSetByte%s\n", z ? "Z" : "");
-	else    ot("  bl    S9xAPUGetByte%s\n", z ? "Z" : "");
+	//if(set) ot("  bl    S9xAPUSetByte%s\n", z ? "Z" : "");
+	//else    ot("  bl    S9xAPUGetByte%s\n", z ? "Z" : "");
 
-	if(save) ot("  ldr   spc_ram,[context,#iapu_ram]\n");
+	//if(set) ot("  asm_S9xAPUSetByte%s\n", z ? "Z" : "");
+	//else    ot("  asm_S9xAPUGetByte%s\n", z ? "Z" : "");
+	if(set) {
+		if (z) SetByteZ(save);
+		else SetByte(save);
+	} else {
+		if (z) GetByteZ();
+		else GetByte();
+	}
+
+	//if(save) ot("  ldr   spc_ram,[context,#iapu_ram]\n");
 }
 
 // pushes reg, trashes r1
@@ -212,73 +412,96 @@ static void Push(char *reg)
 static void PushW()
 {
 	ot("  add   r1,spc_ram,spc_s\n");
+	ot("  sub   spc_s,spc_s,#2\n");
 	ot("  strb  r0,[r1,#0xff]\n");
 	ot("  mov   r0,r0,lsr #8\n");
 	ot("  strb  r0,[r1,#0x100]\n");
-	ot("  sub   spc_s,spc_s,#2\n");
 }
 
 // pops to reg
 static void Pop(char *reg)
 {
-	ot("  add   spc_s,spc_s,#1\n");
 	ot("  add   %s,spc_ram,spc_s\n", reg);
-	ot("  ldrb  %s,[%s,#0x100]\n", reg, reg);
+	ot("  ldrb  %s,[%s,#(0x100 + 1)]\n", reg, reg);
+	ot("  add   spc_s,spc_s,#1\n");
 }
 
 // pops to r0, trashes r1
 static void PopW()
 {
-	ot("  add   spc_s,spc_s,#2\n");
 	ot("  add   r1,spc_ram,spc_s\n");
-	ot("  ldrb  r0,[r1,#0xff]\n");
-	ot("  ldrb  r1,[r1,#0x100]\n");
+	ot("  ldrb  r0,[r1,#(0xff + 2)]\n");
+	ot("  ldrb  r1,[r1,#(0x100 + 2)]\n");
+	ot("  add   spc_s,spc_s,#2\n");
 	ot("  orr   r0,r0,r1,lsl #8\n");
 }
 
-// rr <- absolute, trashes r12
-static void Absolute(int r)
-{
+// // rr <- absolute, trashes r14
+// rr <- absolute
+
+static void AbsoluteAdd(int r, char *rAdd)
+{	
 	ot("  ldrb  r%i,[spc_pc],#1\n", r);
-	ot("  ldrb  r12,[spc_pc],#1\n");
-	ot("  orr   r%i,r%i,r12,lsl #8\n", r, r);
+	ot("  ldrb  r14,[spc_pc],#1\n");
+	if (rAdd) ot("  add   r%i,r%i,%s\n", r, r, rAdd);
+	ot("  add   r%i,r%i,r14,lsl #8\n", r, r);
 }
 
-// rr <- absoluteX, trashes r12
+// // rr <- absolute, trashes r14
+// rr <- absolute
+static void Absolute(int r)
+{	
+	//ot("  ldrb  r%i,[spc_pc],#1\n", r);
+	//ot("  ldrb  r14,[spc_pc],#1\n");
+	//ot("  orr   r%i,r%i,r14,lsl #8\n", r, r);
+	AbsoluteAdd(r, NULL);
+}
+
+
+// rr <- absoluteX, trashes r14
 static void AbsoluteX(int r)
 {
-	Absolute(r);
-	ot("  add   r%i,r%i,spc_x\n", r, r);
+	//Absolute(r);
+	//ot("  ldrb  r%i,[spc_pc],#1\n", r);
+	//ot("  ldrb  r14,[spc_pc],#1\n");
+	//ot("  add   r%i,r%i,spc_x\n", r, r);
+	//ot("  add   r%i,r%i,r14,lsl #8\n", r, r);
+	AbsoluteAdd(r, "spc_x");
 }
 
 // r0 <- absoluteY, trashes r1
 static void AbsoluteY(int r)
 {
-	Absolute(r);
-	ot("  add   r%i,r%i,spc_ya,lsr #8\n", r, r);
+	//Absolute(r);
+	//ot("  ldrb  r%i,[spc_pc],#1\n", r);
+	//ot("  ldrb  r14,[spc_pc],#1\n");
+	//ot("  add   r%i,r%i,spc_ya,lsr #8\n", r, r);
+	//ot("  add   r%i,r%i,r14,lsl #8\n", r, r);
+	AbsoluteAdd(r, "spc_ya, lsr #8");
 }
 
-// rr <- IndirectIndexedY, trashes r12
+// rr <- IndirectIndexedY, trashes r14
 static void IndirectIndexedY(int r)
 {
 	ot("  ldrb  r%i,[spc_pc],#1\n", r);
-	ot("  ldr   r12,[context,#iapu_directpage]\n");
-	ot("  ldrb  r%i,[r12,r%i]!\n", r, r);
-	ot("  ldrb  r12,[r12,#1]\n");
-	ot("  orr   r%i,r%i,r12,lsl #8\n", r, r);
+	ot("  ldr   r14,[context,#iapu_directpage]\n");
+	ot("  ldrb  r%i,[r14,r%i]!\n", r, r);
+	ot("  ldrb  r14,[r14,#1]\n");
+	//ot("  orr   r%i,r%i,r14,lsl #8\n", r, r);
 	ot("  add   r%i,r%i,spc_ya,lsr #8\n", r, r);
+	ot("  add   r%i,r%i,r14,lsl #8\n", r, r);
 }
 
-// rr <- address, trashes r12
+// rr <- address, trashes r14
 static void IndexedXIndirect(int r)
 {
 	ot("  ldrb  r%i,[spc_pc],#1\n", r);
+	ot("  ldr   r14,[context,#iapu_directpage]\n");		// again, interlocks are bad
 	ot("  add   r%i,r%i,spc_x\n", r, r);
 	ot("  and   r%i,r%i,#0xff\n", r, r);
-	ot("  ldr   r12,[context,#iapu_directpage]\n");
-	ot("  ldrb  r%i,[r12,r%i]!\n", r, r);
-	ot("  ldrb  r12,[r12,#1]\n");
-	ot("  orr   r%i,r%i,r12,lsl #8\n", r, r);
+	ot("  ldrb  r%i,[r14,r%i]!\n", r, r);
+	ot("  ldrb  r14,[r14,#1]\n");
+	ot("  orr   r%i,r%i,r14,lsl #8\n", r, r);
 }
 
 // sets ZN for reg in *reg, not suitable for Y
@@ -340,54 +563,58 @@ static void Lsr()
 	SetZN8("r0");
 }
 
-// CMP rr0,rr1; trashes r12
+// CMP rr0,rr1; trashes r14
 static void Cmp(char *r0, char *r1, int and_r0)
 {
 	char *lop = r0;
 
-	if(and_r0) { ot("  and   r12,%s,#0xff\n", r0); lop = "r12"; }
-	ot("  subs  r12,%s,%s\n", lop, r1);
-	ot("  orrge spc_p,spc_p,#flag_c\n");
-	ot("  biclt spc_p,spc_p,#flag_c\n");
-	SetZN8("r12");
+	if(and_r0) { ot("  and   r14,%s,#0xff\n", r0); lop = "r14"; }
+	ot("  subs  r14,%s,%s\n", lop, r1);
+	//ot("  orrge spc_p,spc_p,#flag_c\n");
+	//ot("  biclt spc_p,spc_p,#flag_c\n");
+	ot("  orrcs spc_p,spc_p,#flag_c\n");
+	ot("  biccc spc_p,spc_p,#flag_c\n");
+	SetZN8("r14");
 }
 
-// ADC rr0,rr1 -> rr0, trashes r3,r12, does not mask to byte
+// ADC rr0,rr1 -> rr0, trashes r2,r14, does not mask to byte
 static void Adc(char *r0, char *r1)
 {
-	ot("  eor   r3,%s,%s\n", r0, r1); // r3=(a) ^ (b)
-	ot("  add   %s,%s,%s\n", r0, r0, r1);
-	ot("  tst   spc_p,#flag_c\n");
-	ot("  addne %s,%s,#1\n", r0, r0);
-	ot("  movs  r12,%s,lsr #8\n", r0);
+	ot("  eor   r2,%s,%s\n", r0, r1); // r3=(a) ^ (b)
+	ot("  movs  r14, spc_p, lsr #1\n");
+	ot("  adc   %s, %s, %s\n", r0, r0, r1);	
+	//ot("  add   %s,%s,%s\n", r0, r0, r1);
+	//ot("  tst   spc_p,#flag_c\n");
+	//ot("  addne %s,%s,#1\n", r0, r0);
+	ot("  movs  r14,%s,lsr #8\n", r0);
 	ot("  orrne spc_p,spc_p,#flag_c\n");
 	ot("  biceq spc_p,spc_p,#flag_c\n");
-	ot("  eor   r12,%s,%s\n", r0, r1); // r12=(b) ^ Work16
-	ot("  bic   r12,r12,r3\n"); // ((b) ^ Work16) & ~((a) ^ (b))
-	ot("  tst   r12,#0x80\n");
+	ot("  eor   r14,%s,%s\n", r0, r1); // r14=(b) ^ Work16
+	ot("  bic   r14,r14,r2\n"); // ((b) ^ Work16) & ~((a) ^ (b))
+	ot("  tst   r14,#0x80\n");
 	ot("  orrne spc_p,spc_p,#flag_o\n");
 	ot("  biceq spc_p,spc_p,#flag_o\n");
-	ot("  eor   r12,r3,%s\n", r0);
-	ot("  tst   r12,#0x10\n");
+	ot("  eor   r14,r2,%s\n", r0);
+	ot("  tst   r14,#0x10\n");
 	ot("  orrne spc_p,spc_p,#flag_h\n");
 	ot("  biceq spc_p,spc_p,#flag_h\n");
 }
 
-// SBC rr0,rr1 -> rr0, trashes r2,r3,r12, does not mask to byte
+// SBC rr0,rr1 -> rr0, trashes r2,r3,r14, does not mask to byte
 static void Sbc(char *r0, char *r1)
 {
-	ot("  movs  r12,spc_p,lsr #1\n");
+	ot("  movs  r14,spc_p,lsr #1\n");
 	ot("  sbcs  r2,%s,%s\n", r0, r1);
 	ot("  orrge spc_p,spc_p,#flag_c\n");
 	ot("  biclt spc_p,spc_p,#flag_c\n");
-	ot("  eor   r12,%s,r2\n", r0); // r12=(a) ^ Int16
+	ot("  eor   r14,%s,r2\n", r0); // r14=(a) ^ Int16
 	ot("  eor   r3,%s,%s\n", r0, r1); // r3=(a) ^ (b)
-	ot("  and   r12,r12,r3\n"); // ((a) ^ Work16) & ((a) ^ (b))
-	ot("  tst   r12,#0x80\n");
+	ot("  and   r14,r14,r3\n"); // ((a) ^ Work16) & ((a) ^ (b))
+	ot("  tst   r14,#0x80\n");
 	ot("  orrne spc_p,spc_p,#flag_o\n");
 	ot("  biceq spc_p,spc_p,#flag_o\n");
-	ot("  eor   r12,r3,r2\n", r0);
-	ot("  tst   r12,#0x10\n");
+	ot("  eor   r14,r3,r2\n");
+	ot("  tst   r14,#0x10\n");
 	ot("  orreq spc_p,spc_p,#flag_h\n");
 	ot("  bicne spc_p,spc_p,#flag_h\n");
 	ot("  mov   %s,r2\n", r0);
@@ -422,25 +649,26 @@ static void BssBbc()
 	ot("  tst   r0,#0x%02x\n", 1<<(opcode>>5));
 	ot("  add%s spc_pc,spc_pc,#1\n", opcode & 0x10 ? "ne" : "eq");
 	ot("  ldr%ssb r0,[spc_pc],#1\n", opcode & 0x10 ? "eq" : "ne");
+	ot("  sub%s cycles,cycles,#%i\n",opcode & 0x10 ? "eq" : "ne", one_apu_cycle[current_cycles]*2);
 	ot("  add%s spc_pc,spc_pc,r0\n", opcode & 0x10 ? "eq" : "ne");
-	ot("  sub%s cycles,cycles,#%i\n",opcode & 0x10 ? "eq" : "ne", ONE_APU_CYCLE*2);
 }
 
 //
 static void Membit()
 {
-	ot("  ldrb  r0,[spc_pc],#1\n");
-	ot("  ldrb  r1,[spc_pc],#1\n");
-	ot("  add   r0,r0,r1,lsl #8\n");
-	ot("  mov   r1,r1,lsr #5\n");
-	ot("  mov   r0,r0,lsl #19\n");
-	ot("  mov   r0,r0,lsr #19\n");
-	ot("  orr   spc_x,spc_x,r1,lsl #29 @ store membit where it can survive memhandler call\n");
-	if((opcode >> 4) >= 0xC)
-		ot("  stmfd sp!,{r0}\n");
+	ot("  ldrb  r0,[spc_pc], #1\n");	
+	ot("  ldrb  r3,[spc_pc], #1\n");
+	//ot("  orr   spc_x,spc_x,r1,lsl #(29-5) 
+	ot("  add   r3,r0,r3,lsl #8\n");	//@ store membit where it can survive memhandler call\n"); // saving bit 12 ?	
+	//ot("  mov   r1,r1,lsr #5\n");
+	//ot("  mov   r0,r0,lsl #19\n");
+	//ot("  mov   r0,r0,lsr #19\n");
+	//if((opcode >> 4) >= 0xC) ot("  mov r3, r0\n"); //ot("  stmfd sp!,{r0}\n"); // membit
+	ot("  bic   r0, r3, #0xe000\n");	// Clear bits 15, 14 & 13 => r0 = r0 & 0x1fff
 	MemHandler(0, 0, 0);
-	ot("  mov   r1,spc_x,lsr #29\n");
-	ot("  and   spc_x,spc_x,#0xff\n");
+	//ot("  mov   r1,spc_x,lsr #29\n");
+	//ot("  and   spc_x,spc_x,#0xff\n");
+	ot("  mov   r1, r3, lsr #13\n");  // membit = bits[15:13] of memory address
 	if((opcode >> 4) < 0xC) {
 		ot("  mov   r0,r0,lsr r1\n");
 		ot("  tst   r0,#1\n");
@@ -451,7 +679,7 @@ static void Membit()
 			case 0x6: ot("  bicne spc_p,spc_p,#flag_c\n"); break; // AND1 C, not membit
 			case 0x8: ot("  eorne spc_p,spc_p,#flag_c\n"); break; // EOR1 C, membit
 			case 0xA: ot("  orrne spc_p,spc_p,#flag_c\n");        // MOV1 C,membit
-					  ot("  biceq spc_p,spc_p,#flag_c\n"); break;
+				  ot("  biceq spc_p,spc_p,#flag_c\n"); break;
 		}
 	} else {
 		ot("  mov   r2,#1\n");
@@ -463,10 +691,11 @@ static void Membit()
 		} else { // NOT1 membit
 			ot("  eor   r0,r0,r2\n");
 		}
-		ot("  ldmfd sp!,{r1}\n");
+		//ot("  ldmfd sp!,{r1}\n");
+		ot("  bic   r1, r3, #0xe000\n");	// Clear bits 15, 14 & 13 => r0 = r0 & 0x1fff
 		MemHandler(1, 0, 0);
 	}
-	ot("  ldr   spc_ram,[context,#iapu_ram] @ restore what memhandler(s) messed up\n");
+	//ot("  ldr   spc_ram,[context,#iapu_ram] @ restore what memhandler(s) messed up\n");
 }
 
 //
@@ -492,9 +721,9 @@ static void CBranch()
 	ot("  add   spc_pc,spc_ram,r0,lsr #16\n");
 */
 	ot("  ldr%ssb r0,[spc_pc],#1\n",  opcode & 0x20 ? ne : eq);
-	ot("  add%s spc_pc,spc_pc,r0\n",  opcode & 0x20 ? ne : eq);
 
-	ot("  sub%s cycles,cycles,#%i\n", opcode & 0x20 ? ne : eq, ONE_APU_CYCLE*2);
+	ot("  sub%s cycles,cycles,#%i\n", opcode & 0x20 ? ne : eq, one_apu_cycle[current_cycles]*2);
+	ot("  add%s spc_pc,spc_pc,r0\n",  opcode & 0x20 ? ne : eq);
 //	ot("Apu%02X:\n", opcode);
 }
 
@@ -510,14 +739,14 @@ static void ArithOpToA()
 	switch(opcode>>5) {
 		case 0: ot("  orr   spc_ya,spc_ya,r0\n"); break; // OR
 		case 1: ot("  orr   r0,r0,#0xff00\n");
-				ot("  and   spc_ya,spc_ya,r0\n"); break; // AND
+			ot("  and   spc_ya,spc_ya,r0\n"); break; // AND
 		case 2: ot("  eor   spc_ya,spc_ya,r0\n"); break; // EOR
 		case 3: Cmp("spc_ya", "r0", 1); break; // CMP
 		case 4: Adc("spc_ya", "r0");    break; // ADC
 		case 5: Sbc("spc_ya", "r0");    break; // SBC
 		case 6: printf("MOV (reversed)!?\n");     break; // MOV (reversed)
 		case 7: ot("  and   spc_ya,spc_ya,#0xff00\n");
-				ot("  orr   spc_ya,spc_ya,r0\n"); break; // MOV
+			ot("  orr   spc_ya,spc_ya,r0\n"); break; // MOV
 	}
 
 	if((opcode>>5) != 3) SetZN8("spc_ya"); // only if not Cmp
@@ -592,30 +821,13 @@ static void ArithmeticToA()
 	}
 }
 
-
-int main()
-{
-	int i;
-
-	printf("\n  notaz's SPC700 Emulator v%s - Core Creator\n\n", VERSION);
-
-	// Open the assembly file
-	AsmFile=fopen("spc700a.s", "wt"); if (AsmFile==NULL) return 1;
-
-	ot("@  notaz's SPC700 Emulator v%s - Assembler Output\n\n", VERSION);
-	ot("@ (c) Copyright 2006 notaz, All rights reserved.\n\n");
-	ot("@ this is a rewrite of spc700.cpp in ARM asm, inspired by other asm CPU cores like\n");
-	ot("@ Cyclone and DrZ80. It is meant to be used in Snes9x emulator ports for ARM platforms.\n\n");
-	ot("@ the code is released under Snes9x license. See spcgen.c or any other source file\n@ from Snes9x source tree.\n\n\n");
-
-	PrintFramework();
-
-	for(opcode; opcode < 0x100; opcode++) {
+void printOpcodes(int apu_cycles) {
+	for(opcode = 0; opcode < 0x100; opcode++) {
 		printf("%02X", opcode);
 
 		ot("\n\n");
 		//tmp_prologue();
-		ot("Apu%02X:\n", opcode);
+		ot("Apu%02X_%i:\n", opcode, apu_cycles);
 
 		if((opcode & 0x1f) == 0x10) CBranch();  // BXX
 		if((opcode & 0x0f) == 0x01) TCall();    // TCALL X
@@ -648,11 +860,13 @@ int main()
 			case 0x09: // OR dp(dest),dp(src)
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				MemHandler(0, 1, 0);
-				ot("  orr   spc_x,spc_x,r0,lsl #24 @ save from harm\n");
+				//ot("  orr   spc_x,spc_x,r0,lsl #24 @ save from harm\n");
+				ot("  mov   r3, r0\n");
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  orr   r0,r0,spc_x,lsr #24\n");
-				ot("  and   spc_x,spc_x,#0xff\n");
+				ot("   orr  r0, r0, r3\n");				
+				//ot("  orr   r0,r0,spc_x,lsr #24\n");
+				//ot("  and   spc_x,spc_x,#0xff\n");
 				SetZN8("r0");
 				ot("  ldrb  r1,[spc_pc],#1\n");
 				MemHandler(1, 1, 1);
@@ -671,11 +885,13 @@ int main()
 			case 0x19: // OR (X),(Y)
 				ot("  mov   r0,spc_x\n");
 				MemHandler(0, 1, 0);
-				ot("  orr   spc_x,spc_x,r0,lsl #24\n");
+				//ot("  orr   spc_x,spc_x,r0,lsl #24\n");
+				ot("  mov   r3, r0\n");				
 				ot("  mov   r0,spc_ya,lsr #8\n");
 				MemHandler(0, 1, 0);
-				ot("  orr   r0,r0,spc_x,lsr #24\n");
-				ot("  and   spc_x,spc_x,#0xff\n");
+				ot("  orr   r0, r3, r0\n");
+				//ot("  orr   r0,r0,spc_x,lsr #24\n");
+				//ot("  and   spc_x,spc_x,#0xff\n");
 				SetZN8("r0");
 				ot("  mov   r1,spc_x\n");
 				MemHandler(1, 1, 1);
@@ -691,20 +907,24 @@ int main()
 
 			case 0x0C: // ASL abs
 				Absolute(0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov r3, r0\n");				
 				MemHandler(0, 0, 0);
 				Asl();
-				ot("  ldmfd sp!,{r1}\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  mov r1, r3\n");				
 				MemHandler(1, 0, 1);
 				break;
 
 			case 0x1B: // ASL dp+X
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				ot("  add   r0,r0,spc_x\n");
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov r3, r0\n");				
 				MemHandler(0, 1, 0);
 				Asl();
-				ot("  ldmfd sp!,{r1}\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  mov r1, r3\n");				
 				MemHandler(1, 1, 1);
 				break;
 
@@ -726,7 +946,7 @@ int main()
 				ot("  and   spc_p,spc_p,#0x7d @ clear N & Z\n");
 				ot("  orr   spc_p,spc_p,r1\n");
 				Push("spc_p");
-				ot("  orr   spc_p,spc_p,r0,lsl #24\n");
+				otb("  orr   spc_p,spc_p,r0,lsl #24\n");
 				break;
 
 			case 0x2D: // PUSH A
@@ -750,13 +970,13 @@ int main()
 				ot("  tst   spc_p,#flag_d\n");
 				ot("  addne r0,spc_ram,#0x100\n");
 				ot("  moveq r0,spc_ram\n");
-				ot("  str   r0,[context,#iapu_directpage]\n");
+				otb("  str   r0,[context,#iapu_directpage]\n");
 				break;
 
 			case 0xAE: // POP A
 				Pop("r0");
 				ot("  and   spc_ya,spc_ya,#0xff00\n");
-				ot("  orr   spc_ya,spc_ya,r0\n");
+				otb("  orr   spc_ya,spc_ya,r0\n");
 				break;
 
 			case 0xCE: // POP X
@@ -766,30 +986,34 @@ int main()
 			case 0xEE: // POP X
 				Pop("r0");
 				ot("  and   spc_ya,spc_ya,#0xff\n");
-				ot("  orr   spc_ya,spc_ya,r0,lsl #8\n");
+				otb("  orr   spc_ya,spc_ya,r0,lsl #8\n");
 				break;
 
 			case 0x0E: // TSET1 abs
 				Absolute(0);
-				ot("  orr   spc_x,spc_x,r0,lsl #16 @ save from memhandler\n");
+				ot("  mov   r3, r0\n");
+				//ot("  orr   spc_x,spc_x,r0,lsl #16 @ save from memhandler\n");
 				MemHandler(0, 0, 0);
 				ot("  and   r2,r0,spc_ya\n");
 				SetZN8("r2");
 				ot("  orr   r0,r0,spc_ya\n");
-				ot("  mov   r1,spc_x,lsr #16\n");
-				ot("  and   spc_x,spc_x,#0xff\n");
+				ot("  mov   r1, r3\n");
+				//ot("  mov   r1,spc_x,lsr #16\n");
+				//ot("  and   spc_x,spc_x,#0xff\n");
 				MemHandler(1, 0, 1);
 				break;
 
 			case 0x4E: // TCLR1 abs
 				Absolute(0);
-				ot("  orr   spc_x,spc_x,r0,lsl #16 @ save from memhandler\n");
+				ot("  mov   r3, r0\n");
+				//ot("  orr   spc_x,spc_x,r0,lsl #16 @ save from memhandler\n");
 				MemHandler(0, 0, 0);
 				ot("  and   r2,r0,spc_ya\n");
 				SetZN8("r2");
 				ot("  bic   r0,r0,spc_ya\n");
-				ot("  mov   r1,spc_x,lsr #16\n");
-				ot("  and   spc_x,spc_x,#0xff\n");
+				ot("  mov   r1, r3\n");
+				//ot("  mov   r1,spc_x,lsr #16\n");
+				//ot("  and   spc_x,spc_x,#0xff\n");
 				MemHandler(1, 0, 1);
 				break;
 
@@ -812,9 +1036,20 @@ int main()
 
 			case 0xEF: // SLEEP
 			case 0xFF: // STOP: this is to be compatible with yoyofr's code
-				ot("  ldr   r0,=CPU\n");
+				//ot("  ldr   r0,=CPU\n");
+				ot("	ldr	r0, 5001f\n", apu_cycles);
 				ot("  mov   r1,#0\n");
-				ot("  strb  r1,[r0,#122]\n");
+				//otb("  strb  r1,[r0,#122]\n");				
+				otb("  str  r1,[r0,#cpu_apu_executing]\n");
+				//tmp_epilogue();
+				ot("  subs   cycles,cycles,#%i\n", S9xAPUCycles[opcode] * one_apu_cycle[current_cycles]);
+				ot("  ldrgeb opcode,[spc_pc],#1\n");
+				flush_buffer();		
+				ot("  ldrge  pc,[opcodes,opcode,lsl #2]\n");
+				ot("  b      spc700End\n");
+				// don't let code flow until here
+				ot("5001:\n", apu_cycles);
+				ot("	.long	CPU	\n");
 				break;
 
 			case 0x2F: // BRA
@@ -823,28 +1058,29 @@ int main()
 				break;
 
 			case 0x80: // SETC
-				ot("  orr   spc_p,spc_p,#flag_c\n");
+				otb("  orr   spc_p,spc_p,#flag_c\n");
 				break;
 
 			case 0xED: // NOTC
-				ot("  eor   spc_p,spc_p,#flag_c\n");
+				otb("  eor   spc_p,spc_p,#flag_c\n");
 				break;
 
 			case 0x40: // SETP
 				ot("  orr   spc_p,spc_p,#flag_d\n");
 				ot("  add   r0,spc_ram,#0x100\n");
-				ot("  str   r0,[context,#iapu_directpage]\n");
+				otb("  str   r0,[context,#iapu_directpage]\n");
 				break;
 
 			case 0x1A: // DECW dp
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  ldrb  r0,[spc_pc]\n");
 				ot("  add   r0,r0,#1\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  orr   r1,r1,r0,lsl #8\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  orr   r1,r3,r0,lsl #8\n");
 				ot("  sub   r0,r1,#1\n");
 				SetZN16("r0");
 				ot("  stmfd sp!,{r0}\n");
@@ -853,6 +1089,7 @@ int main()
 				ot("  ldmfd sp!,{r0}\n");
 				ot("  mov   r0,r0,lsr #8\n");
 				ot("  ldrb  r1,[spc_pc],#1\n");
+
 				ot("  add   r1,r1,#1\n");
 				MemHandler(1, 1, 1);
 				break;
@@ -860,12 +1097,13 @@ int main()
 			case 0x5A: // CMPW YA,dp
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				ot("  add   r0,r0,#1\n");
 				MemHandler(0, 1, 1);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  orr   r1,r1,r0,lsl #8\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  orr   r1,r3,r0,lsl #8\n");
 				ot("  subs  r0,spc_ya,r1\n");
 				ot("  orrge spc_p,spc_p,#flag_c\n");
 				ot("  biclt spc_p,spc_p,#flag_c\n");
@@ -875,12 +1113,13 @@ int main()
 			case 0x3A: // INCW dp
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  ldrb  r0,[spc_pc]\n");
 				ot("  add   r0,r0,#1\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  orr   r1,r1,r0,lsl #8\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  orr   r1,r3,r0,lsl #8\n");
 				ot("  add   r0,r1,#1\n");
 				SetZN16("r0");
 				ot("  stmfd sp!,{r0}\n");
@@ -896,54 +1135,57 @@ int main()
 			case 0x7A: // ADDW YA,dp
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				ot("  add   r0,r0,#1\n");
 				MemHandler(0, 1, 1);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  orr   r1,r1,r0,lsl #8\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  orr   r1,r3,r0,lsl #8\n");
 				ot("  add   r0,spc_ya,r1\n");
 				ot("  movs  r2,r0,lsr #16\n");
 				ot("  orrne spc_p,spc_p,#flag_c\n");
 				ot("  biceq spc_p,spc_p,#flag_c\n");
 				ot("  bic   r2,r0,#0x00ff0000\n");
 				ot("  eor   r3,r1,r2\n"); // Work16 ^ (uint16) Work32
-				ot("  eor   r12,spc_ya,r1\n");
-				ot("  mvn   r12,r12\n");  // ~(pIAPU->YA.W ^ Work16)
-				ot("  and   r12,r12,r3\n");
-				ot("  tst   r12,#0x8000\n");
+				ot("  eor   r14,spc_ya,r1\n");
+				ot("  mvn   r14,r14\n");  // ~(pIAPU->YA.W ^ Work16)
+				ot("  and   r14,r14,r3\n");
+				ot("  tst   r14,#0x8000\n");
 				ot("  orrne spc_p,spc_p,#flag_o\n");
 				ot("  biceq spc_p,spc_p,#flag_o\n");
-				ot("  eor   r12,r3,spc_ya\n");
-				ot("  tst   r12,#0x10\n");
+				ot("  eor   r14,r3,spc_ya\n");
+				ot("  tst   r14,#0x10\n");
 				ot("  orrne spc_p,spc_p,#flag_h\n");
 				ot("  biceq spc_p,spc_p,#flag_h\n");
 				ot("  mov   spc_ya,r2\n");
 				SetZN16("spc_ya");
+
 				break;
 
 			case 0x9A: // SUBW YA,dp
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				ot("  add   r0,r0,#1\n");
 				MemHandler(0, 1, 1);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  orr   r1,r1,r0,lsl #8\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  orr   r1,r3,r0,lsl #8\n");
 				ot("  subs  r0,spc_ya,r1\n");
 				ot("  orrge spc_p,spc_p,#flag_c\n");
 				ot("  biclt spc_p,spc_p,#flag_c\n");
 				ot("  mov   r2,r0,lsl #16\n");
 				ot("  mov   r2,r2,lsr #16\n"); // r2=(uint16) Int32
 				ot("  eor   r3,spc_ya,r2\n");  // r3=pIAPU->YA.W ^ (uint16) Int32
-				ot("  eor   r12,spc_ya,r1\n");
-				ot("  and   r12,r12,r3\n");
-				ot("  tst   r12,#0x8000\n");
+				ot("  eor   r14,spc_ya,r1\n");
+				ot("  and   r14,r14,r3\n");
+				ot("  tst   r14,#0x8000\n");
 				ot("  orrne spc_p,spc_p,#flag_o\n");
 				ot("  biceq spc_p,spc_p,#flag_o\n");
-				ot("  eor   r12,r3,r1\n");
-				ot("  tst   r12,#0x10\n");
+				ot("  eor   r14,r3,r1\n");
+				ot("  tst   r14,#0x10\n");
 				ot("  bicne spc_p,spc_p,#flag_h\n");
 				ot("  orreq spc_p,spc_p,#flag_h\n");
 				ot("  mov   spc_ya,r2\n");
@@ -953,9 +1195,9 @@ int main()
 			case 0xBA: // MOVW YA,dp
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  mov   spc_ya,r0\n");
-				ot("  ldrb  r0,[spc_pc],#1\n");
-				ot("  add   r0,r0,#1\n");
+				ot("  ldrb  r1, [spc_pc],#1\n");
+				ot("  mov   spc_ya, r0\n");	// avoiding inter-locks
+				ot("  add   r0, r1, #1\n");
 				MemHandler(0, 1, 1);
 				ot("  orr   spc_ya,spc_ya,r0,lsl #8\n");
 				SetZN16("spc_ya");
@@ -966,8 +1208,8 @@ int main()
 				ot("  mov   r0,spc_ya\n");
 				MemHandler(1, 1, 0);
 				ot("  ldrb  r1,[spc_pc],#1\n");
+				ot("  mov   r0,spc_ya,lsr #8\n");  // avoiding inter-locks
 				ot("  add   r1,r1,#1\n");
-				ot("  mov   r0,spc_ya,lsr #8\n");
 				MemHandler(1, 1, 1);
 				break;
 
@@ -979,7 +1221,7 @@ int main()
 				MemHandler(0, 1, 1);
 				ot("  mov   r1,spc_x,lsr #24\n");
 				Cmp("r0", "r1", 0);
-				ot("  and   spc_x,spc_x,#0xff\n");
+				otb("  and   spc_x,spc_x,#0xff\n");
 				break;
 
 			case 0x78: // CMP dp,#00
@@ -997,7 +1239,7 @@ int main()
 				MemHandler(0, 1, 1);
 				ot("  mov   r1,spc_x,lsr #24\n");
 				Cmp("r1", "r0", 0);
-				ot("  and   spc_x,spc_x,#0xff\n");
+				otb("  and   spc_x,spc_x,#0xff\n");
 				break;
 
 			case 0x1E: // CMP X,abs
@@ -1008,6 +1250,7 @@ int main()
 
 			case 0x3E: // CMP X,dp
 				ot("  ldrb  r0,[spc_pc],#1\n");
+
 				MemHandler(0, 1, 1);
 				Cmp("spc_x", "r0", 0);
 				break;
@@ -1052,31 +1295,36 @@ int main()
 				break;
 
 			case 0x5F: // JMP abs
-				Absolute(0);
-				ot("  add   spc_pc,spc_ram,r0\n");
+				//Absolute(0);
+				//ot("  add   spc_pc,spc_ram,r0\n");
+				ot("  ldrb  r0, [spc_pc], #1\n");
+				ot("  ldrb  r14, [spc_pc], #1\n");
+				ot("  add   spc_pc, r0, spc_ram\n");
+				ot("  add   spc_pc, spc_pc, r14, lsl #8\n");
 				break;
 
 			case 0x20: // CLRP
 				ot("  bic   spc_p,spc_p,#flag_d\n");
-				ot("  str   spc_ram,[context,#iapu_directpage]\n");
+				otb("  str   spc_ram,[context,#iapu_directpage]\n");
 				break;
 
 			case 0x60: // CLRC
-				ot("  bic   spc_p,spc_p,#flag_c\n");
+				otb("  bic   spc_p,spc_p,#flag_c\n");
 				break;
 
 			case 0xE0: // CLRV
-				ot("  bic   spc_p,spc_p,#(flag_o|flag_h)\n");
+				otb("  bic   spc_p,spc_p,#(flag_o|flag_h)\n");
 				break;
 
 			case 0x29: // AND dp(dest), dp(src)
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  and   r0,r0,r1\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  and   r0,r0,r3\n");
 				SetZN8("r0");
 				ot("  ldrb  r1,[spc_pc],#1\n");
 				MemHandler(1, 1, 1);
@@ -1095,11 +1343,12 @@ int main()
 			case 0x39: // AND (X),(Y)
 				ot("  mov   r0,spc_x\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  mov   r0,spc_ya,lsr #8\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  and   r0,r0,r1\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  and   r0,r0,r3\n");
 				SetZN8("r0");
 				ot("  mov   r1,spc_x\n");
 				MemHandler(1, 1, 1);
@@ -1115,10 +1364,12 @@ int main()
 
 			case 0x2C: // ROL abs
 				Absolute(0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				MemHandler(0, 0, 0);
 				Rol();
-				ot("  ldmfd sp!,{r1}\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  mov   r1, r3\n");				
 				MemHandler(1, 0, 1);
 				break;
 
@@ -1137,7 +1388,7 @@ int main()
 				Rol();
 				ot("  and   r0,r0,#0xff\n");
 				ot("  mov   spc_ya,spc_ya,lsr #8\n");
-				ot("  orr   spc_ya,r0,spc_ya,lsl #8\n");
+				otb("  orr   spc_ya,r0,spc_ya,lsl #8\n");
 				break;
 
 			case 0x2E: // CBNE dp,rel
@@ -1147,8 +1398,8 @@ int main()
 				ot("  cmp   r0,r1\n");
 				ot("  addeq spc_pc,spc_pc,#1\n");
 				ot("  ldrnesb r0,[spc_pc],#1\n");
+				ot("  subne cycles,cycles,#%i\n", one_apu_cycle[current_cycles]*2);
 				ot("  addne spc_pc,spc_pc,r0\n");
-				ot("  subne cycles,cycles,#%i\n", ONE_APU_CYCLE*2);
 				break;
 
 			case 0xDE: // CBNE dp+X,rel
@@ -1160,7 +1411,7 @@ int main()
 				ot("  addeq spc_pc,spc_pc,#1\n");
 				ot("  ldrnesb r0,[spc_pc],#1\n");
 				ot("  addne spc_pc,spc_pc,r0\n");
-				ot("  subne cycles,cycles,#%i\n", ONE_APU_CYCLE*2);
+				ot("  subne cycles,cycles,#%i\n", one_apu_cycle[current_cycles]*2);
 				break;
 
 			case 0x3D: // INC X
@@ -1175,7 +1426,7 @@ int main()
 				ot("  and   r0,r0,#0xff\n");
 				SetZN8("r0");
 				ot("  and   spc_ya,spc_ya,#0xff\n");
-				ot("  orr   spc_ya,spc_ya,r0,lsl #8\n");
+				otb("  orr   spc_ya,spc_ya,r0,lsl #8\n");
 				break;
 
 			case 0x1D: // DEC X
@@ -1190,7 +1441,7 @@ int main()
 				ot("  and   r0,r0,#0xff\n");
 				SetZN8("r0");
 				ot("  and   spc_ya,spc_ya,#0xff\n");
-				ot("  orr   spc_ya,spc_ya,r0,lsl #8\n");
+				otb("  orr   spc_ya,spc_ya,r0,lsl #8\n");
 				break;
 
 			case 0xAB: // INC dp
@@ -1204,11 +1455,13 @@ int main()
 
 			case 0xAC: // INC abs
 				Absolute(0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				MemHandler(0, 0, 0);
 				ot("  add   r0,r0,#1\n");
 				SetZN8("r0");
-				ot("  ldmfd sp!,{r1}\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  mov   r1, r3\n");
 				MemHandler(1, 0, 1);
 				break;
 
@@ -1229,7 +1482,7 @@ int main()
 				SetZN8("r0");
 				ot("  and   r0,r0,#0xff\n");
 				ot("  mov   spc_ya,spc_ya,lsr #8\n");
-				ot("  orr   spc_ya,r0,spc_ya,lsl #8\n");
+				otb("  orr   spc_ya,r0,spc_ya,lsl #8\n");
 				break;
 
 			case 0x8B: // DEC dp
@@ -1243,11 +1496,13 @@ int main()
 
 			case 0x8C: // DEC abs
 				Absolute(0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				MemHandler(0, 0, 0);
 				ot("  sub   r0,r0,#1\n");
 				SetZN8("r0");
-				ot("  ldmfd sp!,{r1}\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  mov   r1, r3\n");
 				MemHandler(1, 0, 1);
 				break;
 
@@ -1258,6 +1513,7 @@ int main()
 				ot("  sub   r0,r0,#1\n");
 				SetZN8("r0");
 				ot("  ldrb  r1,[spc_pc],#1\n");
+
 				ot("  add   r1,r1,spc_x\n");
 				MemHandler(1, 1, 1);
 				break;
@@ -1268,17 +1524,18 @@ int main()
 				SetZN8("r0");
 				ot("  and   r0,r0,#0xff\n");
 				ot("  mov   spc_ya,spc_ya,lsr #8\n");
-				ot("  orr   spc_ya,r0,spc_ya,lsl #8\n");
+				otb("  orr   spc_ya,r0,spc_ya,lsl #8\n");
 				break;
 
 			case 0x49: // EOR dp(dest), dp(src)
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  eor   r0,r0,r1\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  eor   r0,r0,r3\n");
 				SetZN8("r0");
 				ot("  ldrb  r1,[spc_pc],#1\n");
 				MemHandler(1, 1, 1);
@@ -1297,11 +1554,12 @@ int main()
 			case 0x59: // EOR (X),(Y)
 				ot("  mov   r0,spc_x\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				ot("  mov   r0,spc_ya,lsr #8\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				ot("  eor   r0,r0,r1\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  eor   r0,r0,r3\n");
 				SetZN8("r0");
 				ot("  mov   r1,spc_x\n");
 				MemHandler(1, 1, 1);
@@ -1317,10 +1575,12 @@ int main()
 
 			case 0x4C: // LSR abs
 				Absolute(0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov   r3, r0\n");
 				MemHandler(0, 0, 0);
 				Lsr();
-				ot("  ldmfd sp!,{r1}\n");
+				//ot("  ldmfd sp!,{r1}\n");
+				ot("  mov r1, r3\n");				
 				MemHandler(1, 0, 1);
 				break;
 
@@ -1338,7 +1598,7 @@ int main()
 				ot("  and   r0,spc_ya,#0xff\n");
 				Lsr();
 				ot("  mov   spc_ya,spc_ya,lsr #8\n");
-				ot("  orr   spc_ya,r0,spc_ya,lsl #8\n");
+				otb("  orr   spc_ya,r0,spc_ya,lsl #8\n");
 				break;
 
 			case 0x7D: // MOV A,X
@@ -1370,7 +1630,7 @@ int main()
 				break;
 
 			case 0xBD: // SP,X
-				ot("  mov   spc_s,spc_x\n");
+				otb("  mov   spc_s,spc_x\n");
 				break;
 
 			case 0x6B: // ROR dp
@@ -1383,10 +1643,12 @@ int main()
 
 			case 0x6C: // ROR abs
 				Absolute(0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov r3, r0\n");				
 				MemHandler(0, 0, 0);
 				Ror();
-				ot("  ldmfd sp!,{r1}\n");
+				ot("  mov r1, r3\n");				
+				//ot("  ldmfd sp!,{r1}\n");
 				MemHandler(1, 0, 1);
 				break;
 
@@ -1404,7 +1666,7 @@ int main()
 				ot("  and   r0,spc_ya,#0xff\n");
 				Ror();
 				ot("  mov   spc_ya,spc_ya,lsr #8\n");
-				ot("  orr   spc_ya,r0,spc_ya,lsl #8\n");
+				otb("  orr   spc_ya,r0,spc_ya,lsl #8\n");
 				break;
 
 			case 0x6E: // DBNZ dp,rel
@@ -1416,7 +1678,7 @@ int main()
 				ot("  addeq spc_pc,spc_pc,#1\n");
 				ot("  ldrnesb r2,[spc_pc],#1\n");
 				ot("  addne spc_pc,spc_pc,r2\n");
-				ot("  subne cycles,cycles,#%i\n", ONE_APU_CYCLE*2);
+				ot("  subne cycles,cycles,#%i\n", one_apu_cycle[current_cycles]*2);
 				MemHandler(1, 1, 1);
 				break;
 
@@ -1428,7 +1690,7 @@ int main()
 				ot("  addeq spc_pc,spc_pc,#1\n");
 				ot("  ldrnesb r0,[spc_pc],#1\n");
 				ot("  addne spc_pc,spc_pc,r0\n");
-				ot("  subne cycles,cycles,#%i\n", ONE_APU_CYCLE*2);
+				ot("  subne cycles,cycles,#%i\n", one_apu_cycle[current_cycles]*2);
 				break;
 
 			case 0x6F: // RET
@@ -1452,11 +1714,13 @@ int main()
 			case 0x89: // ADC dp(dest), dp(src)
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov r3, r0\n");				
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				Adc("r0", "r1");
+				//ot("  ldmfd sp!,{r1}\n");
+				//ot("  mov r1, r3\n");
+				Adc("r0", "r3");
 				SetZN8("r0");
 				ot("  ldrb  r1,[spc_pc],#1\n");
 				MemHandler(1, 1, 1);
@@ -1475,24 +1739,26 @@ int main()
 			case 0x99: // ADC (X),(Y)
 				ot("  mov   r0,spc_x\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov r3, r0\n");				
 				ot("  mov   r0,spc_ya,lsr #8\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				Adc("r0", "r1");
+				//ot("  ldmfd sp!,{r1}\n");
+				//ot("  mov r1, r3\n");				
+				Adc("r0", "r3");
 				SetZN8("r0");
 				ot("  mov   r1,spc_x\n");
 				MemHandler(1, 1, 1);
 				break;
 
-			case 0x8D: // MOV Y,#00
+			case 0x8D: // MOV Y,#00		//-REVISAR
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				ot("  and   spc_ya,spc_ya,#0xff\n");
 				ot("  orr   spc_ya,spc_ya,r0,lsl #8\n");
 				SetZN8("r0");
 				break;
 
-			case 0x8F: // MOV dp,#00
+			case 0x8F: // MOV dp,#00   //-REVISAR
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				ot("  ldrb  r1,[spc_pc],#1\n");
 				MemHandler(1, 1, 1);
@@ -1503,7 +1769,7 @@ int main()
 				ot("  orreq spc_ya,spc_ya,#0xff00\n");
 				ot("  orreq spc_ya,spc_ya,#0x00ff\n");
 				ot("  orreq spc_p,spc_p,#flag_o\n");
-				ot("  beq   Apu9E_end\n");
+				ot("  beq   1002f\n");
 				ot("  bic   spc_p,spc_p,#flag_o\n");
 
 				// division algo from Cyclone (result in r3, remainder instead of divident)
@@ -1531,20 +1797,20 @@ int main()
 			    ot("cmp   spc_ya,r1,lsl #1\n");
 			    ot("movge r1,r1,lsl #1\n");
 
-				ot("divloop:\n");
+				ot("1001:\n");
 				ot("  cmp spc_ya,r1\n");
 				ot("  adc r3,r3,r3 ;@ Double r3 and add 1 if carry set\n");
 				ot("  subcs spc_ya,spc_ya,r1\n");
 				ot("  teq r1,spc_x\n");
 				ot("  movne r1,r1,lsr #1\n");
-				ot("  bne divloop\n");
+				ot("  bne 1001b\n");
 				ot("\n");
 
 				ot("  and   spc_ya,spc_ya,#0xff\n");
 				ot("  and   r3,r3,#0xff\n");
 				ot("  orr   spc_ya,r3,spc_ya,lsl #8\n");
 
-				ot("Apu9E_end:\n");
+				ot("1002:\n");
 				SetZN8("spc_ya");
 				break;
 
@@ -1560,11 +1826,13 @@ int main()
 			case 0xA9: // SBC dp(dest), dp(src)
 				ot("  ldrb  r0,[spc_pc],#1\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov r3, r0\n");				
 				ot("  ldrb  r0,[spc_pc]\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				Sbc("r0", "r1");
+				//ot("  ldmfd sp!,{r1}\n");
+				//ot("  mov r1, r3\n");
+				Sbc("r0", "r3");
 				SetZN8("r0");
 				ot("  ldrb  r1,[spc_pc],#1\n");
 				MemHandler(1, 1, 1);
@@ -1583,11 +1851,13 @@ int main()
 			case 0xB9: // SBC (X),(Y)
 				ot("  mov   r0,spc_x\n");
 				MemHandler(0, 1, 0);
-				ot("  stmfd sp!,{r0}\n");
+				//ot("  stmfd sp!,{r0}\n");
+				ot("  mov r3, r0\n");				
 				ot("  mov   r0,spc_ya,lsr #8\n");
 				MemHandler(0, 1, 0);
-				ot("  ldmfd sp!,{r1}\n");
-				Sbc("r0", "r1");
+				//ot("  ldmfd sp!,{r1}\n");
+				//ot("  mov r1, r3\n");
+				Sbc("r0", "r3");
 				SetZN8("r0");
 				ot("  mov   r1,spc_x\n");
 				MemHandler(1, 1, 1);
@@ -1598,7 +1868,7 @@ int main()
 				ot("  mov   r1,spc_x\n");
 				MemHandler(1, 1, 1);
 				ot("  add   spc_x,spc_x,#1\n");
-				ot("  and   spc_x,spc_x,#0xff\n");
+				otb("  and   spc_x,spc_x,#0xff\n");
 				break;
 
 			case 0xBE: // DAS
@@ -1609,15 +1879,16 @@ int main()
 				ot("  tstls spc_p,#flag_h\n");
 				ot("  subeq r0,r0,#6\n");
 				ot("  cmp   r0,#0x9f\n");
-				ot("  bhi   ApuBE_tens\n");
+				ot("  bhi   2001f\n");
 				ot("  tst   spc_p,#flag_c\n");
-				ot("  beq   ApuBE_tens\n");
+				ot("  beq   2001f\n");
 				ot("  orr   spc_p,spc_p,#flag_c\n");
-				ot("  b     ApuBE_end\n");
-				ot("ApuBE_tens:\n");
+				ot("  b     2002f\n");
+				ot("2001:\n"); // tens
 				ot("  sub   r0,r0,#0x60\n");
 				ot("  bic   spc_p,spc_p,#flag_c\n");
-				ot("ApuBE_end:\n");
+
+				ot("2002:\n"); // end
 				ot("  and   spc_ya,spc_ya,#0xff00\n");
 				ot("  orr   spc_ya,spc_ya,r0\n");
 				SetZN8("spc_ya");
@@ -1634,11 +1905,11 @@ int main()
 				break;
 
 			case 0xC0: // DI
-				ot("  bic   spc_p,spc_p,#flag_i\n");
+				otb("  bic   spc_p,spc_p,#flag_i\n");
 				break;
 
 			case 0xA0: // EI
-				ot("  orr   spc_p,spc_p,#flag_i\n");
+				otb("  orr   spc_p,spc_p,#flag_i\n");
 				break;
 
 			case 0xC4: // MOV dp,A
@@ -1678,6 +1949,7 @@ int main()
 				break;
 
 			case 0xCC: // MOV abs,Y
+
 				Absolute(1);
 				ot("  mov   r0,spc_ya,lsr #8\n");
 				MemHandler(1, 0, 1);
@@ -1696,8 +1968,8 @@ int main()
 				break;
 
 			case 0xD4: // MOV dp+X, A
-				ot("  mov   r0,spc_ya\n");
 				ot("  ldrb  r1,[spc_pc],#1\n");
+				ot("  mov   r0,spc_ya\n");
 				ot("  add   r1,r1,spc_x\n");
 				MemHandler(1, 1, 1);
 				break;
@@ -1728,15 +2000,15 @@ int main()
 
 			case 0xD9: // MOV dp+Y,X
 				ot("  ldrb  r1,[spc_pc],#1\n");
-				ot("  add   r1,r1,spc_ya,lsr #8\n");
 				ot("  mov   r0,spc_x\n");
+				ot("  add   r1,r1,spc_ya,lsr #8\n");
 				MemHandler(1, 1, 1);
 				break;
 
 			case 0xDB: // MOV dp+X,Y
 				ot("  ldrb  r1,[spc_pc],#1\n");
-				ot("  add   r1,r1,spc_x\n");
 				ot("  mov   r0,spc_ya,lsr #8\n");
+				ot("  add   r1,r1,spc_x\n");
 				MemHandler(1, 1, 1);
 				break;
 
@@ -1745,25 +2017,25 @@ int main()
 				ot("  and   r1,spc_ya,#0x0f\n");
 				ot("  cmp   r1,#9\n");
 				ot("  addhi r0,r0,#6\n");
-				ot("  bls   ApuDF_testHc\n");
+				ot("  bls   3001f\n");
 				ot("  cmphi r0,#0xf0\n");
 				ot("  orrhi spc_p,spc_p,#flag_c\n");
-				ot("  b     ApuDF_test2\n");
-				ot("ApuDF_testHc:\n");
+				ot("  b     3002f\n");
+				ot("3001:\n"); // testHc
 				ot("  tst   spc_p,#flag_h\n");
 				ot("  addne r0,r0,#6\n");
-				ot("  beq   ApuDF_test2\n");
+				ot("  beq   3002f\n");
 				ot("  cmp   r0,#0xf0\n");
 				ot("  orrhi spc_p,spc_p,#flag_c\n");
-				ot("ApuDF_test2:\n");
+				ot("3002:\n"); // test2
 				ot("  tst   spc_p,#flag_c\n");
 				ot("  addne r0,r0,#0x60\n");
-				ot("  bne   ApuDF_end\n");
+				ot("  bne   3003f\n");
 				ot("  cmp   r0,#0x9f\n");
 				ot("  addhi r0,r0,#0x60\n");
 				ot("  orrhi spc_p,spc_p,#flag_c\n");
 				ot("  bicls spc_p,spc_p,#flag_c\n");
-				ot("ApuDF_end:\n");
+				ot("3003:\n"); // end
 				ot("  and   spc_ya,spc_ya,#0xff00\n");
 				ot("  orr   spc_ya,spc_ya,r0\n");
 				SetZN8("spc_ya");
@@ -1825,8 +2097,9 @@ int main()
 		}
 
 		//tmp_epilogue();
-		ot("  subs   cycles,cycles,#%i\n", S9xAPUCycles[opcode] * ONE_APU_CYCLE);
+		ot("  subs   cycles,cycles,#%i\n", S9xAPUCycles[opcode] * one_apu_cycle[current_cycles]);
 		ot("  ldrgeb opcode,[spc_pc],#1\n");
+		flush_buffer();		
 		ot("  ldrge  pc,[opcodes,opcode,lsl #2]\n");
 		ot("  b      spc700End\n");
 
@@ -1835,18 +2108,50 @@ int main()
 
 
 	ot("\n\n");
-	ot("@ -------------------------- Jump Table --------------------------\n");
-	ot("Spc700JumpTab:\n");
+
+}
+
+
+void printJumpTable(int apu_cycles) {
+	int i;
+	ot("@ -------------------------- Jump Table %i --------------------------\n", apu_cycles);
+	ot("Spc700JumpTab_%i:\n", apu_cycles);
 
 	for (i=0; i < 0x100; i++)
 	{
 		if ((i&7)==0) ot("  .long ");
 
-		ot("Apu%02X", i);
+		ot("Apu%02X_%i", i, apu_cycles);
 
 		if ((i&7)==7) ot(" @ %02x\n",i-7);
 		else if (i+1 < 0x100) ot(", ");
 	}
+
+}
+
+int main()
+{
+	printf("\n  notaz's SPC700 Emulator v%s - Core Creator\n\n", VERSION);
+
+	// Open the assembly file
+	AsmFile=fopen("spc700a.s", "wt"); if (AsmFile==NULL) return 1;
+
+	ot("@  notaz's SPC700 Emulator v%s - Assembler Output\n\n", VERSION);
+	ot("@ (c) Copyright 2006 notaz, All rights reserved.\n\n");
+	ot("@ Modified by bitrider 2010 - 2011\n\n");
+	ot("@ this is a rewrite of spc700.cpp in ARM asm, inspired by other asm CPU cores like\n");
+	ot("@ Cyclone and DrZ80. It is meant to be used in Snes9x emulator ports for ARM platforms.\n\n");
+	ot("@ the code is released under Snes9x license. See spcgen.c or any other source file\n@ from Snes9x source tree.\n\n\n");
+
+	PrintFramework();
+
+	ot("	.align 	4\n");	
+
+	for (current_cycles=0; current_cycles < (sizeof(one_apu_cycle) / sizeof(int)); current_cycles++) {
+		printOpcodes(one_apu_cycle[current_cycles]);
+		printJumpTable(one_apu_cycle[current_cycles]);
+		}
+
 
 	fclose(AsmFile); AsmFile=NULL;
 

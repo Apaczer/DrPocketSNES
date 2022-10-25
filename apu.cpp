@@ -259,6 +259,9 @@ static inline bool8 S9xSetSoundMode (int channel, int mode)
 	    if (ch->state != SOUND_SILENT)
 		ch->state = mode;
 
+
+
+
 	    return (TRUE);
 	}
 	break;
@@ -370,23 +373,19 @@ static inline void S9xPlaySample (int channel)
 		    APU.DSP [APU_ADSR2 + (channel << 4)]);
 }
 
-#ifdef ASM_SPC700
-extern "C" uint32 Spc700JumpTab;
-#endif
+extern "C" uint32 Spc700JumpTab_15;
 
 bool8 S9xInitAPU ()
 {
 	// notaz
 	memset(&IAPU, 0, sizeof(IAPU));
 	IAPU.ExtraRAM = APU.ExtraRAM;
-#ifdef ASM_SPC700
-	IAPU.asmJumpTab = &Spc700JumpTab;
-#endif
+	IAPU.asmJumpTab = &Spc700JumpTab_15;  // Normal case: ONE_APU_CYCLE = 15
 
-	IAPU.RAM = (uint8 *) malloc (0x10000);
+    IAPU.RAM = (uint8 *) malloc (0x10000);
     IAPU.ShadowRAM = NULL;//(uint8 *) malloc (0x10000);
     IAPU.CachedSamples = NULL;//(uint8 *) malloc (0x40000);
-    
+
     if (!IAPU.RAM /*|| !IAPU.ShadowRAM || !IAPU.CachedSamples*/)
     {
 	S9xDeinitAPU ();
@@ -421,9 +420,16 @@ void S9xResetAPU ()
 {
 //    Settings.APUEnabled = Settings.NextAPUEnabled;
 
-    memset (IAPU.RAM, Settings.APURAMInitialValue, 0x10000);
-    //memset (IAPU.ShadowRAM, Settings.APURAMInitialValue, 0x10000);
-    
+	ZeroMemory(IAPU.RAM, 0x100);
+	memset(IAPU.RAM+0x20, 0xFF, 0x20);
+	memset(IAPU.RAM+0x60, 0xFF, 0x20);
+	memset(IAPU.RAM+0xA0, 0xFF, 0x20);
+	memset(IAPU.RAM+0xE0, 0xFF, 0x20);
+
+	for(int i=1;i<256;i++)
+	{
+		memcpy(IAPU.RAM+(i<<8), IAPU.RAM, 0x100);
+	}
     //ZeroMemory (IAPU.CachedSamples, 0x40000);
     ZeroMemory (APU.OutPorts, 4);
     IAPU.DirectPage = IAPU.RAM;
@@ -941,9 +947,11 @@ void S9xSetAPUDSP (uint8 byte)
 	    {
 		S9xTraceSoundDSP ("[%d] Echo:", ICPU.Scanline);
 		uint8 mask = 1;
+
 		for (int c = 0; c < 8; c++, mask <<= 1)
 		{
 		    if (byte & mask)
+
 		    {
 			if (APU.DSP [reg] & mask)
 			    S9xTraceSoundDSP ("%d", c);

@@ -42,7 +42,6 @@ volatile int CurrentSoundBank=0;
 int CurrentFrameBuffer=0;
 int CurrentFrag=0;
 unsigned int ExistingIntHandler;
-unsigned int VolumeMultiplier = 0x50;
 
 // 1024x8   8x8 font, i love it :)
 const unsigned int font8x8[]= {0x0,0x0,0xc3663c18,0x3c2424e7,0xe724243c,0x183c66c3,0xc16f3818,0x18386fc1,0x83f61c18,0x181cf683,0xe7c3993c,0x3c99c3,0x3f7fffff,0xe7cf9f,0x3c99c3e7,0xe7c399,0x3160c080,0x40e1b,0xcbcbc37e,0x7ec3c3db,0x3c3c3c18,0x81c087e,0x8683818,0x60f0e08,0x81422418,0x18244281,0xbd5a2418,0x18245abd,0x818181ff,0xff8181,0xa1c181ff,0xff8995,0x63633e,0x3e6363,0x606060,0x606060,0x3e60603e,0x3e0303,0x3e60603e,0x3e6060,0x3e636363,0x606060,0x3e03033e,0x3e6060,0x3e03033e,0x3e6363,0x60603e,0x606060,0x3e63633e,0x3e6363,0x3e63633e,0x3e6060,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x0,0x18181818,0x180018,0x666666,0x0,0x367f3600,0x367f36,0x3c067c18,0x183e60,0x18366600,0x62660c,0xe1c361c,0x6e337b,0x181818,0x0,0x18183870,0x703818,0x18181c0e,0xe1c18,0xff3c6600,0x663c,0x7e181800,0x1818,0x0,0x60c0c00,0x7e000000,0x0,0x0,0x181800,0x18306040,0x2060c,0x6e76663c,0x3c6666,0x18181c18,0x7e1818,0x3060663c,0x7e0c18,0x3018307e,0x3c6660,0x363c3830,0x30307e,0x603e067e,0x3c6660,0x3e06063c,0x3c6666,0x1830607e,0xc0c0c,0x3c66663c,0x3c6666,0x7c66663c,0x1c3060,0x181800,0x1818,0x181800,0xc1818,0xc183060,0x603018,0x7e0000,0x7e00,0x30180c06,0x60c18,0x3060663c,0x180018,0x5676663c,0x7c0676,0x66663c18,0x66667e,0x3e66663e,0x3e6666,0x606663c,0x3c6606,0x6666361e,0x1e3666,0x3e06067e,0x7e0606,0x3e06067e,0x60606,0x7606067c,0x7c6666,0x7e666666,0x666666,0x1818183c,0x3c1818,0x60606060,0x3c6660,0xe1e3666,0x66361e,0x6060606,0x7e0606,0x6b7f7763,0x636363,0x7e7e6e66,0x666676,0x6666663c,0x3c6666,0x3e66663e,0x60606,0x6666663c,0x6c366e,0x3e66663e,0x666636,0x3c06663c,0x3c6660,0x1818187e,0x181818,0x66666666,0x7c6666,0x66666666,0x183c66,0x6b636363,0x63777f,0x183c6666,0x66663c,0x3c666666,0x181818,0x1830607e,0x7e060c,0x18181878,0x781818,0x180c0602,0x406030,0x1818181e,0x1e1818,0x63361c08,0x0,0x0,0x7f0000,0xc060300,0x0,0x603c0000,0x7c667c,0x663e0606,0x3e6666,0x63c0000,0x3c0606,0x667c6060,0x7c6666,0x663c0000,0x3c067e,0xc3e0c38,0xc0c0c,0x667c0000,0x3e607c66,0x663e0606,0x666666,0x181c0018,0x3c1818,0x18180018,0xe181818,0x36660606,0x66361e,0x1818181c,0x3c1818,0x7f370000,0x63636b,0x663e0000,0x666666,0x663c0000,0x3c6666,0x663e0000,0x63e6666,0x667c0000,0x607c6666,0x663e0000,0x60606,0x67c0000,0x3e603c,0x187e1800,0x701818,0x66660000,0x7c6666,0x66660000,0x183c66,0x63630000,0x363e6b,0x3c660000,0x663c18,0x66660000,0x3e607c66,0x307e0000,0x7e0c18,0xc181870,0x701818,0x18181818,0x18181818,0x3018180e,0xe1818,0x794f0600,0x30};
@@ -50,6 +49,8 @@ const unsigned int font8x8[]= {0x0,0x0,0xc3663c18,0x3c2424e7,0xe724243c,0x183c66
 pthread_t       gp2x_sound_thread=0, gp2x_sound_thread_exit=0;
 struct fb_fix_screeninfo fb0_fixed_info;
 struct fb_fix_screeninfo fb1_fixed_info;
+
+int altVolumeCtrl = 0;
 
 /* 
 ########################
@@ -72,21 +73,56 @@ static void debug(char *text, int pause)
 	else
 	{
 		gp_clearFramebuffer8(framebuffer16[currFB],0);
-		gp_drawString(0,0,strlen(text),text,(unsigned short)RGB(31,31,31),framebuffer16[currFB]);
+		gp_drawString(0,0,strlen(text),text,(unsigned short)MENU_RGB(31,31,31),framebuffer16[currFB]);
 	}
 	MenuFlip();
 	if(pause)	MenuPause();
 
 }
+
+static int clipping_x1 = 0; 
+static int clipping_x2 = 319;
+static int clipping_y1 = 0;
+static int clipping_y2 = 239;
+
+void gp_setClipping(int x1, int y1, int x2, int y2) {
+	if (x1 < 0) x1 = 0;
+	if (x1 > 319) x1 = 319;
+	if (x2 < 0) x2 = 0;
+	if (x2 > 319) x2 = 319;
+	if (y1 < 0) y1 = 0;
+	if (y1 > 239) y1 = 239;
+	if (y2 < 0) y2 = 0;
+	if (y2 > 239) y2 = 239;
+
+	if (x1 < x2) {
+		clipping_x1 = x1;
+		clipping_x2 = x2;
+	} else {
+		clipping_x2 = x1;
+		clipping_x1 = x2;
+	}
+
+	if (y1 < y2) {
+		clipping_y1 = y1;
+		clipping_y2 = y2;
+	} else {
+		clipping_y2 = y1;
+		clipping_y1 = y2;
+	}
+}
+
 static __inline__
 void gp_drawPixel8 ( int x, int y, unsigned char c, unsigned char *framebuffer ) 
 {
+	if ((x < clipping_x1) || (x > clipping_x2) || (y < clipping_y1) || (y > clipping_y2)) return;
 	*(framebuffer +(320*y)+x ) = c;
 }
 
 static __inline__
 void gp_drawPixel16 ( int x, int y, unsigned short c, unsigned short *framebuffer ) 
 {
+	if ((x < clipping_x1) || (x > clipping_x2) || (y < clipping_y1) || (y > clipping_y2)) return;
 	*(framebuffer +(320*y)+x ) = c;
 }
 
@@ -370,7 +406,7 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 	gp2x_memregs[0x290C>>1]=320*((bpp+1)/8);
 	
 	//TV out fix
-	gp2x_video_RGB_setscaling(320,240);
+	gp_video_RGB_setscaling(320,240);
 	
 	// 2d accel
   	//gp2x_memregs[0x904 >> 1] |= 1<<10;  //SYSCLKENREG (System Clock Enable Register) maybe bit 10 is 2d accer
@@ -476,17 +512,22 @@ void gp2x_sound_sync(void)
 	ioctl(gp2x_dev[3], SOUND_PCM_SYNC, 0); 
 }
 
-void gp2x_sound_volume(int l, int r) 
+void gp_sound_volume(int l, int r) 
 { 
 	if(!gp2x_dev[4])
 	{
 		gp2x_dev[4] = open("/dev/mixer", O_WRONLY); 
 	}
-	l=(((l*VolumeMultiplier)/100)<<8)|((r*VolumeMultiplier)/100);          //0x5A, 0x60 
-	ioctl(gp2x_dev[4], SOUND_MIXER_WRITE_PCM, &l); //SOUND_MIXER_WRITE_VOLUME 
+
+	l=((l<<8)|r);
+	if (altVolumeCtrl) //For FW >= 4.0
+	{
+		ioctl(gp2x_dev[4], SOUND_MIXER_WRITE_VOLUME, &l);
+	}
+	ioctl(gp2x_dev[4], SOUND_MIXER_WRITE_PCM, &l);
 } 
 
-unsigned long gp2x_timer_read(void)
+unsigned long gp_timer_read(void)
 {
   // Once again another peice of direct hardware access bites the dust
   // the code below is broken in firmware 2.1.1 so I've replaced it with a
@@ -509,16 +550,17 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag)
 	int result;
 	char text[256];
 	
-	//Check GP2x model
-	int fd;
-	fd=open("/dev/touchscreen/wm97xx", O_RDONLY | O_NOCTTY);
-	if (fd!=-1)
+	//Check if firmware version > 4
+	FILE *fVersion = fopen("/usr/gp2x/version","r");
+	if (fVersion)
 	{
-		//F200 model
-		VolumeMultiplier = 0x28;
-		close(fd);
+		if (fgetc(fVersion) == '4')
+		{
+			altVolumeCtrl = 1;
+		}
+		fclose(fVersion);
 	}
-	
+
 	//int frag=0x00020010;   // double buffer - frag size = 1<<0xf = 32768
 
 	//8 = 256				= 2 fps loss			= good sound
@@ -649,7 +691,7 @@ void gp_Reset(void)
 	execl("gp2xmenu",NULL);
 }
 
-void gp2x_video_RGB_setscaling(int W, int H)
+void gp_video_RGB_setscaling(int W, int H)
 {
  float escalaw,escalah;
  int bpp=(gp2x_memregs[0x28DA>>1]>>9)&0x3;

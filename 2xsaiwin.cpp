@@ -40,7 +40,7 @@
  */
 //#define MMX
 
-#if !defined(_SNESPPC) && !defined(__GIZ__) && !defined(__GP2X__)
+#if !defined(_SNESPPC) && !defined(__GIZ__) && !defined(__GP2X__) && !defined(__WIZ__)
 #include "snes9x/snes9x.h"
 #include "snes9x/port.h"
 #include "snes9x/gfx.h"
@@ -334,7 +334,7 @@ void SuperEagle(uint8 *srcPtr, uint32 srcPitch,
 {
     uint32 *dP;
     uint16 *bP;
-#if !defined(_SNESPPC) && !defined(__GIZ__) && !defined(__GP2X__)
+#if !defined(_SNESPPC) && !defined(__GIZ__) && !defined(__GP2X__) && !defined(__WIZ__)
     uint16 *xP;
 #endif
 
@@ -513,7 +513,7 @@ void _2xSaI(uint8 *srcPtr, uint32 srcPitch,
 {
     uint32 *dP;
     uint16 *bP;
-#if !defined(_SNESPPC) && !defined(__GIZ__) && !defined(__GP2X__)
+#if !defined(_SNESPPC) && !defined(__GIZ__) && !defined(__GP2X__) && !defined(__WIZ__)
     uint16 *xP;
 #endif
 

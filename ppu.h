@@ -41,6 +41,9 @@
 #ifndef _PPU_H_
 #define _PPU_H_
 
+#include "rops.h"
+#include "menu.h"
+
 #define FIRST_VISIBLE_LINE 1
 
 extern uint8 GetBank;
@@ -67,14 +70,14 @@ struct ClipData {
 };
 
 struct InternalPPU {
-    bool8_32  ColorsChanged;
+    bool8  ColorsChanged;
     uint8  HDMA;
-    bool8_32  HDMAStarted;
+    bool8  HDMAStarted;
     uint8  MaxBrightness;
-    bool8_32  LatchedBlanking;
-    bool8_32  OBJChanged;
-    bool8_32  RenderThisFrame;
-    bool8_32  DirectColourMapsNeedRebuild;
+    bool8  LatchedBlanking;
+    bool8  OBJChanged;
+    bool8  RenderThisFrame;
+    bool8  DirectColourMapsNeedRebuild;
     uint32 FrameCount;
     uint32 RenderedFramesCount;
     uint32 DisplayedRenderedFrameCount;
@@ -82,16 +85,16 @@ struct InternalPPU {
     uint32 FrameSkip;
     uint8  *TileCache [3];
     uint8  *TileCached [3];
-    bool8_32  FirstVRAMRead;
-    bool8_32  LatchedInterlace;
-    bool8_32  DoubleWidthPixels;
+    bool8  FirstVRAMRead;
+    bool8  LatchedInterlace;
+    bool8  DoubleWidthPixels;
     int    RenderedScreenHeight;
     int    RenderedScreenWidth;
     uint32 Red [256];
     uint32 Green [256];
     uint32 Blue [256];
     uint8  *XB;
-    uint16 ScreenColors [256];
+    uint32 ScreenColors [256];
     int	   PreviousLine;
     int	   CurrentLine;
     int	   Controller;
@@ -121,7 +124,7 @@ struct SPPU {
     uint8  Brightness;
 
     struct {
-	bool8_32 High;
+	bool8 High;
 	uint8 Increment;
 	uint16 Address;
 	uint16 Mask1;
@@ -136,9 +139,10 @@ struct SPPU {
 	uint8 BGSize;
 	uint16 NameBase;
 	uint16 SCSize;
+	bool8 OffsetsChanged; //-chg
     } BG [4];
 
-    bool8_32  CGFLIP;
+    bool8  CGFLIP;
     uint16 CGDATA [256]; 
     uint8  FirstSprite;
     uint8  LastSprite;
@@ -174,21 +178,21 @@ struct SPPU {
     uint16 ScreenHeight;
     uint32 WRAM;
     uint8  BG_Forced;
-    bool8_32  ForcedBlanking;
-    bool8_32  OBJThroughMain;
-    bool8_32  OBJThroughSub;
+    bool8  ForcedBlanking;
+    bool8  OBJThroughMain;
+    bool8  OBJThroughSub;
     uint8  OBJSizeSelect;
     uint16 OBJNameBase;
-    bool8_32  OBJAddition;
+    bool8  OBJAddition;
     uint8  OAMReadFlip;
     uint8  OAMData [512 + 32];
-    bool8_32  VTimerEnabled;
-    bool8_32  HTimerEnabled;
+    bool8  VTimerEnabled;
+    bool8  HTimerEnabled;
     short  HTimerPosition;
     uint8  Mosaic;
-    bool8_32  BGMosaic [4];
-    bool8_32  Mode7HFlip;
-    bool8_32  Mode7VFlip;
+    bool8  BGMosaic [4];
+    bool8  Mode7HFlip;
+    bool8  Mode7VFlip;
     uint8  Mode7Repeat;
     uint8  Window1Left;
     uint8  Window1Right;
@@ -198,14 +202,17 @@ struct SPPU {
     uint8  ClipWindowOverlapLogic [6];
     uint8  ClipWindow1Enable [6];
     uint8  ClipWindow2Enable [6];
-    bool8_32  ClipWindow1Inside [6];
-    bool8_32  ClipWindow2Inside [6];
-    bool8_32  RecomputeClipWindows;
+    bool8  ClipWindow1Inside [6];
+    bool8  ClipWindow2Inside [6];
+    bool8  RecomputeClipWindows;
     uint8  CGFLIPRead;
     uint16 OBJNameSelect;
-    bool8_32  Need16x8Mulitply;
+    bool8  Need16x8Mulitply;
     uint8  Joypad3ButtonReadPos;
     uint8  MouseSpeed[2];
+    uint16 SavedOAMAddr2;
+    uint16 OAMWriteRegister;
+    uint8 BGnxOFSbyte;
 };
 
 #define CLIP_OR 0
@@ -214,9 +221,9 @@ struct SPPU {
 #define CLIP_XNOR 3
 
 struct SDMA {
-    bool8_32  TransferDirection;
-    bool8_32  AAddressFixed;
-    bool8_32  AAddressDecrement;
+    bool8  TransferDirection;
+    bool8  AAddressFixed;
+    bool8  AAddressDecrement;
     uint8  TransferMode;
 
     uint8  ABank;
@@ -228,7 +235,7 @@ struct SDMA {
     uint16 TransferBytes;
 
     // H-DMA only:
-    bool8_32  HDMAIndirectAddressing;
+    bool8  HDMAIndirectAddressing;
     uint16 IndirectAddress;
     uint8  IndirectBank;
     uint8  Repeat;
@@ -237,7 +244,7 @@ struct SDMA {
 };
 
 START_EXTERN_C
-void S9xUpdateScreen ();
+//void S9xUpdateScreen ();
 void S9xResetPPU ();
 void S9xFixColourBrightness ();
 void S9xUpdateJoypads ();
@@ -277,80 +284,95 @@ STATIC INLINE uint8 REGISTER_4212()
     return (GetBank);
 }
 
+/*
 STATIC INLINE void FLUSH_REDRAW ()
 {
     if (IPPU.PreviousLine != IPPU.CurrentLine)
 	S9xUpdateScreen ();
 }
+*/
+
+#define FLUSH_REDRAW()     if (IPPU.PreviousLine != IPPU.CurrentLine) S9xUpdateScreen ()
+
 
 STATIC INLINE void REGISTER_2104 (uint8 byte)
 {
-    if (PPU.OAMAddr >= 0x110)
-	return;
-	
-    int addr = (PPU.OAMAddr << 1) + (PPU.OAMFlip & 1);
-    
-    if (byte != PPU.OAMData [addr])
+    if (PPU.OAMAddr & 0x100)
     {
-	FLUSH_REDRAW ();
-	PPU.OAMData [addr] = byte;
-	IPPU.OBJChanged = TRUE;
-	if (addr & 0x200)
-	{
-	    // X position high bit, and sprite size (x4)
-	    struct SOBJ *pObj = &PPU.OBJ [(addr & 0x1f) * 4];
+        int addr = ((PPU.OAMAddr & 0x10f) << 1) + (PPU.OAMFlip & 1);
+        if (byte != PPU.OAMData [addr]){
+#ifdef	__DEBUG__
+	printf("SetPPU_2104, PPU.OAMData. Byte : %x\n", byte);
+#endif
 
-	    pObj->HPos = (pObj->HPos & 0xFF) | SignExtend[(byte >> 0) & 1];
-	    pObj++->Size = byte & 2;
-	    pObj->HPos = (pObj->HPos & 0xFF) | SignExtend[(byte >> 2) & 1];
-	    pObj++->Size = byte & 8;
-	    pObj->HPos = (pObj->HPos & 0xFF) | SignExtend[(byte >> 4) & 1];
-	    pObj++->Size = byte & 32;
-	    pObj->HPos = (pObj->HPos & 0xFF) | SignExtend[(byte >> 6) & 1];
-	    pObj->Size = byte & 128;
-	}
-	else
-	{
-	    if (addr & 1)
-	    {
-		if (addr & 2)
-		{
-		    addr = PPU.OAMAddr >> 1;
-		    // Tile within group, priority, h and v flip.
-		    PPU.OBJ[addr].Name &= 0xFF;
-		    PPU.OBJ[addr].Name |= ((uint16) (byte & 1)) << 8;
-		    PPU.OBJ[addr].Palette = (byte >> 1) & 7;
-		    PPU.OBJ[addr].Priority = (byte >> 4) & 3;
-		    PPU.OBJ[addr].HFlip = (byte >> 6) & 1;
-		    PPU.OBJ[addr].VFlip = (byte >> 7) & 1;
-		}
-		else
-		{
-		    // Sprite Y position
-		    PPU.OBJ[PPU.OAMAddr >> 1].VPos = byte;
-		}
-	    }
-	    else
-	    {
-		if (addr & 2)
-		{
-		    // Tile group
-		    
-		    PPU.OBJ[addr = PPU.OAMAddr >> 1].Name &= 0x100;
-		    PPU.OBJ[addr].Name |= byte;
-		}
-		else
-		{
-		    // X position (low)
-		    PPU.OBJ[addr = PPU.OAMAddr >> 1].HPos &= 0xFF00;
-		    PPU.OBJ[addr].HPos |= byte;
-		}
-	    }
-	}
+            FLUSH_REDRAW ();
+            PPU.OAMData [addr] = byte;
+            IPPU.OBJChanged = TRUE;
+
+            // X position high bit, and sprite size (x4)
+            struct SOBJ *pObj = &PPU.OBJ [(addr & 0x1f) * 4];
+
+            pObj->HPos = (pObj->HPos & 0xFF) | SignExtend[(byte >> 0) & 1];
+            pObj++->Size = byte & 2;
+            pObj->HPos = (pObj->HPos & 0xFF) | SignExtend[(byte >> 2) & 1];
+            pObj++->Size = byte & 8;
+            pObj->HPos = (pObj->HPos & 0xFF) | SignExtend[(byte >> 4) & 1];
+            pObj++->Size = byte & 32;
+            pObj->HPos = (pObj->HPos & 0xFF) | SignExtend[(byte >> 6) & 1];
+            pObj->Size = byte & 128;
+        }
+        PPU.OAMFlip ^= 1;
+        if(!(PPU.OAMFlip & 1)){
+            ++PPU.OAMAddr;
+            PPU.OAMAddr &= 0x1ff;
+        }
+    } else if(!(PPU.OAMFlip & 1)){
+        PPU.OAMWriteRegister &= 0xff00;
+        PPU.OAMWriteRegister |= byte;
+        PPU.OAMFlip |= 1;
+    } else {
+        PPU.OAMWriteRegister &= 0x00ff;
+        uint8 lowbyte = (uint8)(PPU.OAMWriteRegister);
+        uint8 highbyte = byte;
+        PPU.OAMWriteRegister |= byte << 8;
+
+        int addr = (PPU.OAMAddr << 1);
+
+        if (lowbyte != PPU.OAMData [addr] ||
+            highbyte != PPU.OAMData [addr+1])
+        {
+            FLUSH_REDRAW ();
+#ifdef	__DEBUG__
+	printf("SetPPU_2104, PPU.OAMData. Byte : %x\n", byte);
+#endif
+
+            PPU.OAMData [addr] = lowbyte;
+            PPU.OAMData [addr+1] = highbyte;
+            IPPU.OBJChanged = TRUE;
+            if (addr & 2)
+            {
+                // Tile
+                PPU.OBJ[addr = PPU.OAMAddr >> 1].Name = PPU.OAMWriteRegister & 0x1ff;
+
+                // priority, h and v flip.
+                PPU.OBJ[addr].Palette = (highbyte >> 1) & 7;
+                PPU.OBJ[addr].Priority = (highbyte >> 4) & 3;
+                PPU.OBJ[addr].HFlip = (highbyte >> 6) & 1;
+                PPU.OBJ[addr].VFlip = (highbyte >> 7) & 1;
+            }
+            else
+            {
+                // X position (low)
+                PPU.OBJ[addr = PPU.OAMAddr >> 1].HPos &= 0xFF00;
+                PPU.OBJ[addr].HPos |= lowbyte;
+
+                // Sprite Y position
+                PPU.OBJ[addr].VPos = highbyte;
+            }
+        }
+        PPU.OAMFlip &= ~1;
+        ++PPU.OAMAddr;
     }
-    PPU.OAMFlip ^= 1;
-    if (!(PPU.OAMFlip & 1))
-	PPU.OAMAddr++;
 
     Memory.FillRAM [0x2104] = byte;
 }
@@ -476,31 +498,26 @@ STATIC INLINE void REGISTER_2119_linear (uint8 Byte)
 //    Memory.FillRAM [0x2119] = Byte;
 }
 
+#ifdef __OLD_RASTER_FX__
+STATIC INLINE void REGISTER_2122_delayedRasterFx(uint8 Byte)
+#else
 STATIC INLINE void REGISTER_2122(uint8 Byte)
+#endif
 {
     // CG-RAM (palette) write
-
+   
     if (PPU.CGFLIP)
     {
 	if ((Byte & 0x7f) != (PPU.CGDATA[PPU.CGADD] >> 8))
 	{
-#ifndef _SNESPPC
-	    if (Settings.SixteenBit)
+	    	PPU.CGDATA[PPU.CGADD] &= 0x00FF;
+	    	PPU.CGDATA[PPU.CGADD] |= (Byte & 0x7f) << 8;	    	
+	    	if (!(Settings.os9x_hack&PPU_IGNORE_PALWRITE)){
+#ifdef	__DEBUG__
+	printf("SetPPU_2122, CG-RAM (palette) write. PPU.CFGFLIP. Byte : %x\n", Byte);
 #endif
-		FLUSH_REDRAW ();
-	    PPU.CGDATA[PPU.CGADD] &= 0x00FF;
-	    PPU.CGDATA[PPU.CGADD] |= (Byte & 0x7f) << 8;
-	    IPPU.ColorsChanged = TRUE;
-#ifndef _SNESPPC
-	    if (Settings.SixteenBit)
-#endif
-		{
-		IPPU.Blue [PPU.CGADD] = IPPU.XB [(Byte >> 2) & 0x1f];
-		IPPU.Green [PPU.CGADD] = IPPU.XB [(PPU.CGDATA[PPU.CGADD] >> 5) & 0x1f];
-		IPPU.ScreenColors [PPU.CGADD] = (uint16) BUILD_PIXEL (IPPU.Red [PPU.CGADD],
-							     IPPU.Green [PPU.CGADD],
-							     IPPU.Blue [PPU.CGADD]);
-	    }
+			ADD_ROP(ROP_PALETTE, PPU.CGADD | (PPU.CGDATA[PPU.CGADD] << 16));
+			}
 	}
 	PPU.CGADD++;
     }
@@ -508,28 +525,77 @@ STATIC INLINE void REGISTER_2122(uint8 Byte)
     {
 	if (Byte != (uint8) (PPU.CGDATA[PPU.CGADD] & 0xff))
 	{
-#ifndef _SNESPPC
-	    if (Settings.SixteenBit)
+	    	PPU.CGDATA[PPU.CGADD] &= 0x7F00;
+	    	PPU.CGDATA[PPU.CGADD] |= Byte;
+	    	if (!(Settings.os9x_hack&PPU_IGNORE_PALWRITE)){
+#ifdef	__DEBUG__
+	printf("SetPPU_2122, CG-RAM (palette) write. !PPU.CFGFLIP. Byte : %x\n", Byte);
 #endif
-		FLUSH_REDRAW ();
-	    PPU.CGDATA[PPU.CGADD] &= 0x7F00;
-	    PPU.CGDATA[PPU.CGADD] |= Byte;
-	    IPPU.ColorsChanged = TRUE;
-#ifndef _SNESPPC
-	    if (Settings.SixteenBit)
-#endif
-	    {
-		IPPU.Red [PPU.CGADD] = IPPU.XB [Byte & 0x1f];
-		IPPU.Green [PPU.CGADD] = IPPU.XB [(PPU.CGDATA[PPU.CGADD] >> 5) & 0x1f];
-		IPPU.ScreenColors [PPU.CGADD] = (uint16) BUILD_PIXEL (IPPU.Red [PPU.CGADD],
-							     IPPU.Green [PPU.CGADD],
-							     IPPU.Blue [PPU.CGADD]);
-	    }
+			ADD_ROP(ROP_PALETTE, PPU.CGADD | (PPU.CGDATA[PPU.CGADD] << 16));
+			}
 	}
     }
     PPU.CGFLIP ^= 1;
 //    Memory.FillRAM [0x2122] = Byte;
 }
+
+#ifdef __OLD_RASTER_FX__
+STATIC INLINE void REGISTER_2122_normalRasterFx(uint8 Byte)
+{
+    // CG-RAM (palette) write
+   
+    if (PPU.CGFLIP)
+    {
+	if ((Byte & 0x7f) != (PPU.CGDATA[PPU.CGADD] >> 8))
+	{
+	    if (!(Settings.os9x_hack&PPU_IGNORE_PALWRITE)){
+#ifdef	__DEBUG__
+	printf("SetPPU_2122, CG-RAM (palette) write. PPU.CFGFLIP. Byte : %x\n", Byte);
+#endif
+				FLUSH_REDRAW ();
+			}
+	    	PPU.CGDATA[PPU.CGADD] &= 0x00FF;
+	    	PPU.CGDATA[PPU.CGADD] |= (Byte & 0x7f) << 8;	    	
+		IPPU.ColorsChanged = TRUE;
+		IPPU.Blue [PPU.CGADD] = (Byte >> 2) & 0x1f;
+		IPPU.Green [PPU.CGADD] = (PPU.CGDATA[PPU.CGADD] >> 5) & 0x1f;
+		IPPU.ScreenColors [PPU.CGADD] = (uint16) BUILD_PIXEL (IPPU.XB[IPPU.Red[PPU.CGADD]], 
+									IPPU.XB[IPPU.Green[PPU.CGADD]], 
+									IPPU.XB[IPPU.Blue [PPU.CGADD]]);
+	}
+	PPU.CGADD++;
+    }
+    else
+    {
+	if (Byte != (uint8) (PPU.CGDATA[PPU.CGADD] & 0xff))
+	{
+	    if (!(Settings.os9x_hack&PPU_IGNORE_PALWRITE)){
+#ifdef	__DEBUG__
+	printf("SetPPU_2122, CG-RAM (palette) write. !PPU.CFGFLIP. Byte : %x\n", Byte);
+#endif
+				FLUSH_REDRAW ();
+			}
+
+	    	PPU.CGDATA[PPU.CGADD] &= 0x7F00;
+	    	PPU.CGDATA[PPU.CGADD] |= Byte;
+	    	IPPU.ColorsChanged = TRUE;
+		IPPU.Red [PPU.CGADD] = Byte & 0x1f;
+		IPPU.Green [PPU.CGADD] = (PPU.CGDATA[PPU.CGADD] >> 5) & 0x1f;
+		IPPU.ScreenColors [PPU.CGADD] = (uint16) BUILD_PIXEL (IPPU.XB[IPPU.Red[PPU.CGADD]], 
+									IPPU.XB[IPPU.Green[PPU.CGADD]], 
+									IPPU.XB[IPPU.Blue [PPU.CGADD]]);
+	}
+    }
+    PPU.CGFLIP ^= 1;
+//    Memory.FillRAM [0x2122] = Byte;
+}
+
+
+STATIC INLINE void REGISTER_2122(uint8 Byte) {
+	if (snesMenuOptions.delayedRasterFX) REGISTER_2122_delayedRasterFx(Byte);
+	else REGISTER_2122_normalRasterFx(Byte); 
+}
+#endif
 
 STATIC INLINE void REGISTER_2180(uint8 Byte)
 {

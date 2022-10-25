@@ -51,6 +51,21 @@ typedef union
 } YAndA;
 */
 
+struct SAPU
+{
+    int32  Cycles;	// 0x00
+    bool8  ShowROM;	// 0x04
+    uint8  Flags;	// 0x05
+    uint8  KeyedChannels;	// 0x06
+    uint8  OutPorts [4];	// 0x07
+    uint8  DSP [0x80];		// 0x0B
+    uint8  ExtraRAM [64];
+    uint16 Timer [3];
+    uint16 TimerTarget [3];
+    bool8  TimerEnabled [3];
+    bool8  TimerValueWritten [3];
+};
+
 struct SIAPU
 {
     uint8  *DirectPage;        // 0x00
@@ -84,47 +99,39 @@ struct SIAPU
 	uint8  *ExtraRAM;          // 0x48  shortcut to APU.ExtraRAM
 };
 
-struct SAPU
-{
-    int32  Cycles;
-    bool8  ShowROM;
-    uint8  Flags;
-    uint8  KeyedChannels;
-    uint8  OutPorts [4];
-    uint8  DSP [0x80];
-    uint8  ExtraRAM [64];
-    uint16 Timer [3];
-    uint16 TimerTarget [3];
-    bool8  TimerEnabled [3];
-    bool8  TimerValueWritten [3];
-};
 
 EXTERN_C struct SAPU APU;
 EXTERN_C struct SIAPU IAPU;
 
 STATIC inline void S9xAPUUnpackStatus()
 {
-    IAPU._Zero     =((IAPU.P & Zero) == 0) | (IAPU.P & Negative);
 
-#ifndef ASM_SPC700
-	IAPU._Carry    = (IAPU.P & Carry);
-    IAPU._Overflow = (IAPU.P & Overflow);
-#endif
+    IAPU._Zero     =((IAPU.P & Zero) == 0) | (IAPU.P & Negative);
+	
+	if (!Settings.asmspc700)
+	{
+		IAPU._Carry    = (IAPU.P & Carry);
+		IAPU._Overflow = (IAPU.P & Overflow);
+	}
 }
 
 STATIC inline void S9xAPUPackStatus()
-{
-#ifdef ASM_SPC700
-    IAPU.P &= ~(Zero | Negative);
-    if(!IAPU._Zero)       IAPU.P |= Zero;
-    if(IAPU._Zero & 0x80) IAPU.P |= Negative;
-#else
-    IAPU.P &= ~(Zero | Negative | Carry | Overflow);
-    if(IAPU._Carry)       IAPU.P |= Carry;
-    if(!IAPU._Zero)       IAPU.P |= Zero;
-    if(IAPU._Overflow)    IAPU.P |= Overflow;
-    if(IAPU._Zero & 0x80) IAPU.P |= Negative;
-#endif
+{	
+	if (Settings.asmspc700)
+	{
+		IAPU.P &= ~(Zero | Negative);
+		if(!IAPU._Zero)       IAPU.P |= Zero;
+		if(IAPU._Zero & 0x80) IAPU.P |= Negative;	
+
+	}
+	else
+	{
+		IAPU.P &= ~(Zero | Negative | Carry | Overflow);
+		if(IAPU._Carry)       IAPU.P |= Carry;
+		if(!IAPU._Zero)       IAPU.P |= Zero;
+		if(IAPU._Overflow)    IAPU.P |= Overflow;
+		if(IAPU._Zero & 0x80) IAPU.P |= Negative;
+	}
 }
 
 START_EXTERN_C
@@ -175,6 +182,7 @@ END_EXTERN_C
 #define APU_ESA 0x6d
 #define APU_EDL 0x7d
 
+#define APU_CX 0x0f
 #define APU_C0 0x0f
 #define APU_C1 0x1f
 #define APU_C2 0x2f

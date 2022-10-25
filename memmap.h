@@ -104,7 +104,7 @@ public:
     void AlphaROMMap ();
     void SA1ROMMap ();
     void BSHiROMMap ();
-    bool8_32 AllASCII (uint8 *b, int size);
+     bool8_32 AllASCII (uint8 *b, int size);
     int  ScoreHiROM (bool8_32 skip_header);
     int  ScoreLoROM (bool8_32 skip_header);
     void ApplyROMFixes ();
@@ -121,6 +121,7 @@ public:
     const char *Headers ();
     const char *ROMID ();
     const char *CompanyID ();
+	uint32 caCRC32(uint8 *array, uint32 size, register uint32 crc32= 0xFFFFFFFF);	
     
     enum {
 	MAP_PPU, MAP_CPU, MAP_DSP, MAP_LOROM_SRAM, MAP_HIROM_SRAM,
@@ -142,7 +143,7 @@ public:
     uint8 SRAMSize;
     uint8 *Map [MEMMAP_NUM_BLOCKS];
     uint8 *WriteMap [MEMMAP_NUM_BLOCKS];
-    uint8 MemorySpeed [MEMMAP_NUM_BLOCKS];
+    uint32 MemorySpeed [MEMMAP_NUM_BLOCKS];
     uint8 BlockIsRAM [MEMMAP_NUM_BLOCKS];
     uint8 BlockIsROM [MEMMAP_NUM_BLOCKS];
     char  ROMName [ROM_NAME_LEN];
@@ -191,7 +192,7 @@ uint8 *S9xGetMemPointer (uint32 Address);
 uint8 *GetBasePointer (uint32 Address);
 #else
 #ifndef INLINE
-#define INLINE __inline
+#define INLINE inline
 #endif
 #include "getset.h"
 #endif // NO_INLINE_SET_GET

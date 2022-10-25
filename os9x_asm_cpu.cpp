@@ -22,7 +22,7 @@ void asm_S9xSetPCBase(uint32 Address)
 }
 
 
-#if 0
+#ifdef _C_GW_
 #define PushW(w) \
     S9xSetWord (w, Registers.S.W - 1);\
     Registers.S.W -= 2;
@@ -203,34 +203,53 @@ void asm_S9xOpcode_IRQ(void)
 }
 #endif
 
-
-#ifndef ASM_SPC700
-
-void asm_APU_EXECUTE(void)
+/*
+void asm_APU_EXECUTE(int Mode)
 {
 #ifdef __debug_c_apuex__	
 	printf("apuexec\n");
 #endif
-	if(CPU.APU_APUExecuting != 1) return;
+	if(CPU.APU_APUExecuting != Mode) return;
 
-	while (CPU.APU_Cycles <= CPU.Cycles)
+	if (Settings.asmspc700)
 	{
-		APU_EXECUTE1();
+		if(CPU.APU_Cycles < CPU.Cycles) {
+			int cycles = CPU.Cycles - CPU.APU_Cycles;
+			CPU.APU_Cycles += cycles - spc700_execute(cycles);
+		}
+	}
+	else
+	{
+		while (CPU.APU_Cycles <= CPU.Cycles)
+		{
+			CPU.APU_Cycles += S9xAPUCycles [*IAPU.PC];
+			(*S9xApuOpcodes[*IAPU.PC]) ();
+		}
 	}
 }
+
 
 void asm_APU_EXECUTE2(void)
 {
 	if(CPU.APU_APUExecuting != 1) return;
 
-	ICPU.CPUExecuting = FALSE;
-	do
+	//ICPU.CPUExecuting = FALSE;
+	if (Settings.asmspc700)
 	{
-	    APU_EXECUTE1();
-	} while (CPU.APU_Cycles < CPU.NextEvent);
-	ICPU.CPUExecuting = TRUE;
-}
-
-#endif
+		if(CPU.APU_Cycles < CPU.NextEvent) {
+			int cycles = CPU.NextEvent - CPU.APU_Cycles;
+			CPU.APU_Cycles += cycles - spc700_execute(cycles);
+		}
+	}
+	else
+	{
+		do
+		{
+			CPU.APU_Cycles += S9xAPUCycles [*IAPU.PC];
+			(*S9xApuOpcodes[*IAPU.PC]) ();
+		} while (CPU.APU_Cycles < CPU.NextEvent);
+	}
+	//ICPU.CPUExecuting = TRUE;
+}*/
 
 END_EXTERN_C

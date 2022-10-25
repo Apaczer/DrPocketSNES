@@ -41,14 +41,12 @@
 #ifndef _TILE_H_
 #define _TILE_H_
 
+extern uint32 TileBlank;
+
 #define TILE_PREAMBLE \
     uint8 *pCache; \
 \
-    uint32 TileAddr = BG.TileAddress + ((Tile & 0x3ff) << BG.TileShift); \
-    if ((Tile & 0x1ff) >= 256) \
-	TileAddr += BG.NameSelect; \
-\
-    TileAddr &= 0xffff; \
+    uint32 TileAddr = (BG.TileAddress + ((Tile & 0x3ff) << BG.TileShift)) & 0xffff; \
 \
     uint32 TileNumber; \
     pCache = &BG.Buffer[(TileNumber = (TileAddr >> BG.TileShift)) << 6]; \
@@ -56,66 +54,47 @@
     if (!BG.Buffered [TileNumber]) \
 	BG.Buffered[TileNumber] = ConvertTile (pCache, TileAddr); \
 \
-    if (BG.Buffered [TileNumber] == BLANK_TILE) \
-	return; \
+    if (BG.Buffered [TileNumber] == BLANK_TILE){ \
+		TileBlank = Tile; \
+		return; \
+	} \
 \
     register uint32 l; \
-    if (BG.DirectColourMode) \
-    { \
-	if (IPPU.DirectColourMapsNeedRebuild) \
-            S9xBuildDirectColourMaps (); \
-        gfx->ScreenColors = DirectColourMaps [(Tile >> 10) & BG.PaletteMask]; \
-    } \
-    else \
-	gfx->ScreenColors = &IPPU.ScreenColors [(((Tile >> 10) & BG.PaletteMask) << BG.PaletteShift) + BG.StartPalette];
+    GFX.ScreenColors = &GFX.ScreenColorsPre[(Tile & GFX.PaletteMask) >> GFX.PaletteShift];
 
+
+/*
+    if (BG.DirectColourMode) GFX.ScreenColors = DirectColourMaps [(Tile >> 10) & BG.PaletteMask]; \
+    else GFX.ScreenColors = &IPPU.ScreenColors [(((Tile >> 10) & BG.PaletteMask) << BG.PaletteShift) + BG.StartPalette];
+*/
 #define RENDER_TILE(NORMAL, FLIPPED, N) \
-    if (!(Tile & (V_FLIP | H_FLIP))) \
-    { \
-	bp = pCache + StartLine; \
-	for (l = LineCount; l != 0; l--, bp += 8, Offset += gfx->PPL) \
-	{ \
-	    if (*(uint32 *) bp) \
-		NORMAL (Offset, bp, gfx); \
-	    if (*(uint32 *) (bp + 4)) \
-		NORMAL (Offset + N, bp + 4, gfx); \
+	register int	inc; \
+    if (!(Tile & V_FLIP)){ \
+		bp  = pCache + StartLine; \
+		inc = 8; \
+	} else { \
+		bp  = pCache + 56 - StartLine; \
+		inc = -8; \
 	} \
-    } \
-    else \
-    if (!(Tile & V_FLIP)) \
-    { \
-	bp = pCache + StartLine; \
-	for (l = LineCount; l != 0; l--, bp += 8, Offset += gfx->PPL) \
-	{ \
-	    if (*(uint32 *) (bp + 4)) \
-		FLIPPED (Offset, bp + 4, gfx); \
-	    if (*(uint32 *) bp) \
-		FLIPPED (Offset + N, bp, gfx); \
-	} \
-    } \
-    else \
-    if (Tile & H_FLIP) \
-    { \
-	bp = pCache + 56 - StartLine; \
-	for (l = LineCount; l != 0; l--, bp -= 8, Offset += gfx->PPL) \
-	{ \
-	    if (*(uint32 *) (bp + 4)) \
-		FLIPPED (Offset, bp + 4, gfx); \
-	    if (*(uint32 *) bp) \
-		FLIPPED (Offset + N, bp, gfx); \
-	} \
-    } \
-    else \
-    { \
-	bp = pCache + 56 - StartLine; \
-	for (l = LineCount; l != 0; l--, bp -= 8, Offset += gfx->PPL) \
-	{ \
-	    if (*(uint32 *) bp) \
-		NORMAL (Offset, bp, gfx); \
-	    if (*(uint32 *) (bp + 4)) \
-		NORMAL (Offset + N, bp + 4, gfx); \
-	} \
-    }
+ \
+	l = LineCount; \
+    if (!(Tile & H_FLIP)){ \
+		while ( l-- ){ \
+		    if (*(uint32 *) bp) \
+			NORMAL (Offset, bp); \
+		    if (*(uint32 *) (bp + 4)) \
+			NORMAL (Offset + N, bp + 4); \
+			bp += inc, Offset += GFX_PPL; \
+		} \
+	} else { \
+		while ( l-- ){ \
+		    if (*(uint32 *) (bp + 4)) \
+			FLIPPED (Offset, bp + 4); \
+		    if (*(uint32 *) bp) \
+			FLIPPED (Offset + N, bp); \
+			bp += inc, Offset += GFX_PPL; \
+		} \
+	}
 
 #define TILE_CLIP_PREAMBLE \
     uint32 dd; \
@@ -145,56 +124,35 @@
 
 
 #define RENDER_CLIPPED_TILE(NORMAL, FLIPPED, N) \
-    if (!(Tile & (V_FLIP | H_FLIP))) \
-    { \
-	bp = pCache + StartLine; \
-	for (l = LineCount; l != 0; l--, bp += 8, Offset += gfx->PPL) \
-	{ \
-	    if ((dd = (*(uint32 *) bp) & d1)) \
-		NORMAL (Offset, (uint8 *) &dd, gfx); \
-	    if ((dd = (*(uint32 *) (bp + 4)) & d2)) \
-		NORMAL (Offset + N, (uint8 *) &dd, gfx); \
+	register int	inc; \
+    if (Tile & V_FLIP){ \
+		bp  = pCache + 56 - StartLine; \
+		inc = -8; \
+	} else { \
+		bp  = pCache + StartLine; \
+		inc = 8; \
 	} \
-    } \
-    else \
-    if (!(Tile & V_FLIP)) \
-    { \
-	bp = pCache + StartLine; \
-	SWAP_DWORD (d1); \
-	SWAP_DWORD (d2); \
-	for (l = LineCount; l != 0; l--, bp += 8, Offset += gfx->PPL) \
-	{ \
-	    if ((dd = *(uint32 *) (bp + 4) & d1)) \
-		FLIPPED (Offset, (uint8 *) &dd, gfx); \
-	    if ((dd = *(uint32 *) bp & d2)) \
-		FLIPPED (Offset + N, (uint8 *) &dd, gfx); \
-	} \
-    } \
-    else \
-    if (Tile & H_FLIP) \
-    { \
-	bp = pCache + 56 - StartLine; \
-	SWAP_DWORD (d1); \
-	SWAP_DWORD (d2); \
-	for (l = LineCount; l != 0; l--, bp -= 8, Offset += gfx->PPL) \
-	{ \
-	    if ((dd = *(uint32 *) (bp + 4) & d1)) \
-		FLIPPED (Offset, (uint8 *) &dd, gfx); \
-	    if ((dd = *(uint32 *) bp & d2)) \
-		FLIPPED (Offset + N, (uint8 *) &dd, gfx); \
-	} \
-    } \
-    else \
-    { \
-	bp = pCache + 56 - StartLine; \
-	for (l = LineCount; l != 0; l--, bp -= 8, Offset += gfx->PPL) \
-	{ \
-	    if ((dd = (*(uint32 *) bp) & d1)) \
-		NORMAL (Offset, (uint8 *) &dd, gfx); \
-	    if ((dd = (*(uint32 *) (bp + 4)) & d2)) \
-		NORMAL (Offset + N, (uint8 *) &dd, gfx); \
-	} \
-    }
+ \
+	l = LineCount; \
+    if (!(Tile & H_FLIP)){ \
+		while ( l-- ){ \
+		    if ((dd = (*(uint32 *) bp) & d1)) \
+			NORMAL (Offset, (uint8 *) &dd); \
+		    if ((dd = (*(uint32 *) (bp + 4)) & d2)) \
+			NORMAL (Offset + N, (uint8 *) &dd); \
+			bp += inc, Offset += GFX_PPL; \
+		} \
+	} else { \
+		SWAP_DWORD (d1); \
+		SWAP_DWORD (d2); \
+		while ( l-- ){ \
+		    if ((dd = *(uint32 *) (bp + 4) & d1)) \
+			FLIPPED (Offset, (uint8 *) &dd); \
+		    if ((dd = *(uint32 *) bp & d2)) \
+			FLIPPED (Offset + N, (uint8 *) &dd); \
+			bp += inc, Offset += GFX_PPL; \
+		} \
+	}
 
 #define RENDER_TILE_LARGE(PIXEL, FUNCTION) \
     if (!(Tile & (V_FLIP | H_FLIP))) \
@@ -202,13 +160,13 @@
 	if ((pixel = *(pCache + StartLine + StartPixel))) \
 	{ \
 	    pixel = PIXEL; \
-	    for (l = LineCount; l != 0; l--, sp += gfx->PPL, Depth += gfx->PPL) \
+	    for (l = LineCount; l != 0; l--, sp += GFX_PPL, Depth += GFX_PPL) \
 	    { \
 		for (int z = Pixels - 1; z >= 0; z--) \
-		    if (gfx->Z1 > Depth [z]) \
+		    if (GFX.Z1 > Depth [z]) \
 		    { \
 			sp [z] = FUNCTION(sp + z, pixel); \
-			Depth [z] = gfx->Z2; \
+			Depth [z] = GFX.Z2; \
 		    }\
 	    } \
 	} \
@@ -220,13 +178,13 @@
 	if ((pixel = *(pCache + StartLine + StartPixel))) \
 	{ \
 	    pixel = PIXEL; \
-	    for (l = LineCount; l != 0; l--, sp += gfx->PPL, Depth += gfx->PPL) \
+	    for (l = LineCount; l != 0; l--, sp += GFX_PPL, Depth += GFX_PPL) \
 	    { \
 		for (int z = Pixels - 1; z >= 0; z--) \
-		    if (gfx->Z1 > Depth [z]) \
+		    if (GFX.Z1 > Depth [z]) \
 		    { \
 			sp [z] = FUNCTION(sp + z, pixel); \
-			Depth [z] = gfx->Z2; \
+			Depth [z] = GFX.Z2; \
 		    }\
 	    } \
 	} \
@@ -238,13 +196,13 @@
 	if ((pixel = *(pCache + 56 - StartLine + StartPixel))) \
 	{ \
 	    pixel = PIXEL; \
-	    for (l = LineCount; l != 0; l--, sp += gfx->PPL, Depth += gfx->PPL) \
+	    for (l = LineCount; l != 0; l--, sp += GFX_PPL, Depth += GFX_PPL) \
 	    { \
 		for (int z = Pixels - 1; z >= 0; z--) \
-		    if (gfx->Z1 > Depth [z]) \
+		    if (GFX.Z1 > Depth [z]) \
 		    { \
 			sp [z] = FUNCTION(sp + z, pixel); \
-			Depth [z] = gfx->Z2; \
+			Depth [z] = GFX.Z2; \
 		    }\
 	    } \
 	} \
@@ -254,13 +212,13 @@
 	if ((pixel = *(pCache + 56 - StartLine + StartPixel))) \
 	{ \
 	    pixel = PIXEL; \
-	    for (l = LineCount; l != 0; l--, sp += gfx->PPL, Depth += gfx->PPL) \
+	    for (l = LineCount; l != 0; l--, sp += GFX_PPL, Depth += GFX_PPL) \
 	    { \
 		for (int z = Pixels - 1; z >= 0; z--) \
-		    if (gfx->Z1 > Depth [z]) \
+		    if (GFX.Z1 > Depth [z]) \
 		    { \
 			sp [z] = FUNCTION(sp + z, pixel); \
-			Depth [z] = gfx->Z2; \
+			Depth [z] = GFX.Z2; \
 		    }\
 	    } \
 	} \
@@ -270,7 +228,7 @@
     if (!(Tile & (V_FLIP | H_FLIP))) \
     { \
 	bp = pCache + StartLine; \
-	for (l = LineCount; l != 0; l--, bp += 8, Offset += gfx->PPL) \
+	for (l = LineCount; l != 0; l--, bp += 8, Offset += GFX_PPL) \
 	{ \
 	    /*if (*(uint32 *) bp)*/if (((uint32)bp[0])|((uint32)bp[2])|((uint32)bp[4])|((uint32)bp[6])) \
 		NORMAL (Offset, bp); \
@@ -280,7 +238,7 @@
     if (!(Tile & V_FLIP)) \
     { \
 	bp = pCache + StartLine; \
-	for (l = LineCount; l != 0; l--, bp += 8, Offset += gfx->PPL) \
+	for (l = LineCount; l != 0; l--, bp += 8, Offset += GFX_PPL) \
 	{ \
 	    /*if (*(uint32 *) (bp + 4))*/if (((uint32)bp[0])|((uint32)bp[2])|((uint32)bp[4])|((uint32)bp[6])) \
 		FLIPPED (Offset, bp); \
@@ -290,7 +248,7 @@
     if (Tile & H_FLIP) \
     { \
 	bp = pCache + 56 - StartLine; \
-	for (l = LineCount; l != 0; l--, bp -= 8, Offset += gfx->PPL) \
+	for (l = LineCount; l != 0; l--, bp -= 8, Offset += GFX_PPL) \
 	{ \
 	    /*if (*(uint32 *) (bp + 4))*/if (((uint32)bp[0])|((uint32)bp[2])|((uint32)bp[4])|((uint32)bp[6]))  \
 		FLIPPED (Offset, bp); \
@@ -299,7 +257,7 @@
     else \
     { \
 	bp = pCache + 56 - StartLine; \
-	for (l = LineCount; l != 0; l--, bp -= 8, Offset += gfx->PPL) \
+	for (l = LineCount; l != 0; l--, bp -= 8, Offset += GFX_PPL) \
 	{ \
 	    /*if (*(uint32 *) bp)*/if (((uint32)bp[0])|((uint32)bp[2])|((uint32)bp[4])|((uint32)bp[6])) \
 		NORMAL (Offset, bp); \
@@ -313,7 +271,7 @@
     if (!(Tile & (V_FLIP | H_FLIP))) \
     { \
 	bp = pCache + StartLine; \
-	for (l = LineCount; l != 0; l--, bp += 8, Offset += gfx->PPL) \
+	for (l = LineCount; l != 0; l--, bp += 8, Offset += GFX_PPL) \
 	{ \
 	    /*if ((dd = (*(uint32 *) bp) & d1))*/if (dd = (((((uint32)bp[6])<<24)|(((uint32)bp[4])<<16)|(((uint32)bp[2])<<8)|((uint32)bp[0]))&d1)) \
 		NORMAL (Offset, (uint8 *) &dd); \
@@ -325,7 +283,7 @@
 	bp = pCache + StartLine; \
 	SWAP_DWORD (d1); \
 	/*SWAP_DWORD (d2);*/ \
-	for (l = LineCount; l != 0; l--, bp += 8, Offset += gfx->PPL) \
+	for (l = LineCount; l != 0; l--, bp += 8, Offset += GFX_PPL) \
 	{ \
 	    /*if ((dd = *(uint32 *) (bp + 4) & d1))*/if (dd = (((((uint32)bp[6])<<24)|(((uint32)bp[4])<<16)|(((uint32)bp[2])<<8)|((uint32)bp[0]))&d1)) \
 		FLIPPED (Offset, (uint8 *) &dd); \
@@ -337,7 +295,7 @@
 	bp = pCache + 56 - StartLine; \
 	SWAP_DWORD (d1); \
 	/*SWAP_DWORD (d2);*/ \
-	for (l = LineCount; l != 0; l--, bp -= 8, Offset += gfx->PPL) \
+	for (l = LineCount; l != 0; l--, bp -= 8, Offset += GFX_PPL) \
 	{ \
 	    /*if ((dd = *(uint32 *) (bp + 4) & d1))*/if (dd = (((((uint32)bp[6])<<24)|(((uint32)bp[4])<<16)|(((uint32)bp[2])<<8)|((uint32)bp[0]))&d1)) \
 		FLIPPED (Offset, (uint8 *) &dd); \
@@ -346,7 +304,7 @@
     else \
     { \
 	bp = pCache + 56 - StartLine; \
-	for (l = LineCount; l != 0; l--, bp -= 8, Offset += gfx->PPL) \
+	for (l = LineCount; l != 0; l--, bp -= 8, Offset += GFX_PPL) \
 	{ \
 	    /*if ((dd = (*(uint32 *) bp) & d1))*/ if (dd = (((((uint32)bp[6])<<24)|(((uint32)bp[4])<<16)|(((uint32)bp[2])<<8)|((uint32)bp[0]))&d1)) \
 		NORMAL (Offset, (uint8 *) &dd); \

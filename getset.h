@@ -38,6 +38,7 @@
  * Super NES and Super Nintendo Entertainment System are trademarks of
  * Nintendo Co., Limited and its subsidiary companies.
  */
+
 #ifndef _GETSET_H_
 #define _GETSET_H_
 
@@ -46,10 +47,10 @@
 #include "cpuexec.h"
 #include "sa1.h"
 
-#define __memcheck__
+//#define __memcheck__
 //#define __show_io__
 extern int oppause;
-extern uint16 mem_check;
+//extern uint16 mem_check;
 
 INLINE uint8 S9xGetByte (uint32 Address)
 {	
@@ -354,7 +355,9 @@ INLINE void S9xSetByte (uint8 Byte, uint32 Address)
 	CPU.Cycles += SLOW_ONE_CYCLE;
 #endif
 	*(Memory.SRAM + (Address & 0xffff)) = Byte;
+#ifdef	USE_SA1	
 	SA1.Executing = !SA1.Waiting;
+#endif
 	break;
 //#ifndef __GP32__
     case CMemory::MAP_C4:
@@ -400,19 +403,27 @@ INLINE void S9xSetWord (uint16 Word, uint32 Address)
 	CPU.Cycles += Memory.MemorySpeed [block] << 1;
 #endif
 #if defined(CPU_SHUTDOWN) && defined(USE_SA1)
-	uint8 *SetAddressSA1 += Address & 0xffff;
-	if (SetAddressSA1 == SA1.WaitByteAddress1 ||
-	    SetAddressSA1 == SA1.WaitByteAddress2)
+	SetAddress += Address & 0xffff;
+	if (SetAddress == SA1.WaitByteAddress1 ||
+	    SetAddress == SA1.WaitByteAddress2)
 	{
 	    SA1.Executing = SA1.S9xOpcodes != NULL;
 	    SA1.WaitCounter = 0;
 	}
+	SetAddress -= Address & 0xffff;
+#ifdef FAST_LSB_WORD_ACCESS
+	*(uint16 *) SetAddress = Word;
+#else
+	*(SetAddress + (Address & 0xffff)) = (uint8) Word;
+	*(SetAddress + ((Address + 1) & 0xffff)) = Word >> 8;
 #endif
+#else
 #ifdef FAST_LSB_WORD_ACCESS
 	*(uint16 *) (SetAddress + (Address & 0xffff)) = Word;
 #else
 	*(SetAddress + (Address & 0xffff)) = (uint8) Word;
 	*(SetAddress + ((Address + 1) & 0xffff)) = Word >> 8;
+#endif
 #endif
 	return;
     }
@@ -492,7 +503,9 @@ INLINE void S9xSetWord (uint16 Word, uint32 Address)
 #endif
 	*(Memory.SRAM + (Address & 0xffff)) = (uint8) Word;
 	*(Memory.SRAM + ((Address + 1) & 0xffff)) = (uint8) (Word >> 8);
+#ifdef	USE_SA1		
 	SA1.Executing = !SA1.Waiting;
+#endif
 	break;
 //#ifndef __GP32__
     case CMemory::MAP_C4:
@@ -693,3 +706,5 @@ INLINE void S9xSetPCBase (uint32 Address)
     }
 }
 #endif
+
+

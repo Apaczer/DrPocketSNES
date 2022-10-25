@@ -130,43 +130,9 @@ EXTERN_C int32 ESPC (int32);
 
 #else
 
-#ifdef ASM_SPC700
 
 // return cycles left (always negative)
 extern "C" int spc700_execute(int cycles);
-
-#define APU_EXECUTE1() \
-{ \
-	CPU.APU_Cycles -= spc700_execute(0); \
-}
-
-// notaz: CPU.APU_APUExecuting: 0 == disabled, 1 == enabled normal, 3 == enabled in hack mode
-
-#define APU_EXECUTE(mode) \
-if (CPU.APU_APUExecuting == mode) \
-{\
-	if(CPU.APU_Cycles <= CPU.Cycles) { \
-		int cycles = CPU.Cycles - CPU.APU_Cycles; \
-		CPU.APU_Cycles += cycles - spc700_execute(cycles); \
-	} \
-}
-
-#else
-
-#define APU_EXECUTE1() \
-{ \
-    CPU.APU_Cycles += S9xAPUCycles [*IAPU.PC]; \
-    (*S9xApuOpcodes[*IAPU.PC]) (); \
-}
-
-#define APU_EXECUTE(x) \
-if (CPU.APU_APUExecuting) \
-{\
-    while (CPU.APU_Cycles <= CPU.Cycles) \
-	APU_EXECUTE1(); \
-}
-
-#endif // ASM_SPC700
 
 #endif // SPCTOOL
 

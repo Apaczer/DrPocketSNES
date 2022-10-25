@@ -544,7 +544,8 @@ static int Unfreeze()
     int result;
 
     int version;
-    unsigned int len = strlen (SNAPSHOT_MAGIC) + 1 + 4 + 1;
+
+	unsigned int len = strlen (SNAPSHOT_MAGIC) + 1 + 4 + 1;
     if (statef_read(buffer, len) != (int)len)
     {
 		return (WRONG_FORMAT);
@@ -592,6 +593,13 @@ static int Unfreeze()
     IPPU.ColorsChanged = TRUE;
     IPPU.OBJChanged = TRUE;
     CPU.InDMA = FALSE;
+    // Restore colors from PPU
+    for (unsigned int i = 0; i < 256; i++) {
+	    IPPU.Red[i] = PPU.CGDATA[i] & 0x1f;
+	    IPPU.Green[i] = (PPU.CGDATA[i] >> 5) & 0x1f;
+	    IPPU.Blue[i] = (PPU.CGDATA[i] >> 10) & 0x1f;
+	    }
+
     S9xFixColourBrightness ();
     IPPU.RenderThisFrame = FALSE;
 
@@ -611,6 +619,13 @@ static int Unfreeze()
     if ((result = UnfreezeBlock ("FIL", Memory.FillRAM, 0x8000)) != SUCCESS)
 	return (result);
 
+    // Restore graphics shadow registers
+    GFX.r212c_s = Memory.FillRAM[0x212c];
+    GFX.r212d_s = Memory.FillRAM[0x212d];
+    GFX.r212e_s = Memory.FillRAM[0x212e];
+    GFX.r212f_s = Memory.FillRAM[0x212f];
+    GFX.r2130_s = Memory.FillRAM[0x2130];
+    GFX.r2131_s = Memory.FillRAM[0x2131];
 	
     if (UnfreezeStruct ("APU", &APU, SnapAPU, COUNT (SnapAPU)) == SUCCESS)
     {
@@ -671,9 +686,10 @@ static int Unfreeze()
     ICPU.ShiftedDB = Registers.DB << 16;
     S9xSetPCBase (ICPU.ShiftedPB + Registers.PC);
     
-    
-    //S9xUnpackStatus (); // not needed
-    //S9xFixCycles (); // also not needed?
+#ifndef ASMCPU    
+    S9xUnpackStatus (); // not needed
+    S9xFixCycles (); // also not needed?
+#endif
     S9xReschedule ();
 #ifdef ZSNES_FX
     if (Settings.SuperFX)
@@ -682,7 +698,7 @@ static int Unfreeze()
 
     S9xSRTCPostLoadState ();
     if (Settings.SDD1)	S9xSDD1PostLoadState ();
-    
+
     return (SUCCESS);
 }
 

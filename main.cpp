@@ -1,26 +1,38 @@
-
-
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/stat.h>
 #include <dirent.h>
 #include <errno.h>
+#include <zlib.h>
+#include "unzip.h"
+#include "zip.h"
+#include "screenshot.h"
+#include "theme.h"
 
 #ifdef __GIZ__
 #define TIMER_1_SECOND	1000
-#include <sys/wcetypes.h>
-#include <KGSDK.h>
-#include <Framework.h>
-#include <Framework2D.h>
-#include <FrameworkAudio.h>
-#include "giz_kgsdk.h"
+#include <unistd.h>
+#include <w32api/GizSdk/FrameworkAudio.h>
+#include "giz_sdk.h"
 #endif
 
 #ifdef __GP2X__
 #define TIMER_1_SECOND	1000000
 #include "gp2x_sdk.h"
 #include "squidgehack.h"
+#endif
+
+#ifdef __WIZ__
+#define TIMER_1_SECOND	1000000
+  #ifdef __CAANOO__
+	#include "caanoo_sdk.h"
+  #else
+  	#include "wiz_sdk.h"
+  #endif
+#include "time.h"
+unsigned short *pOutputScreen;
+#include "sys/resource.h"
 #endif
 
 #include "menu.h"
@@ -31,6 +43,8 @@
 #include "soundux.h"
 #include "snapshot.h"
 
+#include "disk_img.h"
+#include "config.h"
 
 #define EMUVERSION "SquidgeSNES V0.37 01-Jun-06"
 
@@ -41,6 +55,11 @@ extern "C" char joy_Count();
 extern "C" int InputClose();
 extern "C" int joy_getButton(int joyNumber);
 #endif
+
+extern "C" uint32 Spc700JumpTab_13;
+extern "C" uint32 Spc700JumpTab_14;
+extern "C" uint32 Spc700JumpTab_15;
+extern "C" uint32 Spc700JumpTab_21;
 
 unsigned char gammatab[10][32]={
 	{0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,
@@ -70,8 +89,6 @@ int gp32_8bitmode = 0;
 int32 gp32_ShowSub = 0;
 int gp32_fastsprite = 1;
 int gp32_gammavalue = 0;
-int squidgetranshack = 0;
-uint8 *vrambuffer;
 int globexit = 0;
 int sndvolL, sndvolR;
 char fps_display[256];
@@ -79,7 +96,16 @@ int samplecount=0;
 int enterMenu = 0;
 void *currentFrameBuffer;
 int16 oldHeight = 0;
-
+bool8  ROMAPUEnabled = 0;
+char lastLoadedFile[2048];		
+bool lastLoaded = false;
+unsigned short *loadingFB;
+int loadingY;
+static int loadingPrint(char *txt) {
+	gp_drawString(20, loadingY, strlen(txt), txt, tTextColorLoading, (unsigned char*)loadingFB);
+	loadingY += 8;
+}
+	
 static int S9xCompareSDD1IndexEntries (const void *p1, const void *p2)
 {
     return (*(uint32 *) p1 - *(uint32 *) p2);
@@ -164,10 +190,11 @@ extern "C"
 	Settings.SDD1Pack=TRUE;
 	Memory.FreeSDD1Data ();
 
-    gp_clearFramebuffer16(framebuffer16[currFB],0x0);
-    sprintf(text,"Loading SDD1 pack...");
-	gp_drawString(0,0,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
-	MenuFlip();
+    //gp_clearFramebuffer16(framebuffer16[currFB],0x0);
+    //sprintf(text,"Loading SDD1 pack...");
+	//gp_drawString(0,0,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+	//MenuFlip();
+	loadingPrint("Loading SDD1 pack...");
 	strcpy (filename, romDir);
 
     if (strncmp (Memory.ROMName, "Star Ocean", 10) == 0)
@@ -274,11 +301,13 @@ extern "C"
     }
 	//fprintf(fs,"Decompressed data pack not found in '%s'\n",filename);
 	//fclose(fs);
-	gp_clearFramebuffer16(framebuffer16[currFB],0x0);
-	sprintf(text,"Decompressed data pack not found!");
-	gp_drawString(0,8,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
-	MenuFlip();
-	usleep(2000000);
+	//gp_clearFramebuffer16(framebuffer16[currFB],0x0);
+	//sprintf(text,"Decompressed data pack not found!");
+	//gp_drawString(0,8,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+	//MenuFlip();
+	loadingPrint("Decompressed data pack not found!");
+	loadingPrint("[Press a button to continue]");		
+	MenuPause();
    }
 
    
@@ -290,8 +319,17 @@ extern "C"
 	  currFB++;
 	  currFB&=3;
 	  
-	  if (snesMenuOptions.renderMode == RENDER_MODE_SCALED)
+	  if (snesMenuOptions.renderMode != RENDER_MODE_UNSCALED)
+	  {
+#if defined (__WIZ__)
+		if (PPU.ScreenHeight != SNES_HEIGHT_EXTENDED)
+			GFX.Screen = (uint8 *) pOutputScreen+ (640*8) + 64;
+		else
+			GFX.Screen = (uint8 *) pOutputScreen + 64;
+#else
 		GFX.Screen = (uint8 *) framebuffer16[currFB];
+#endif
+	  }
 	  else if (PPU.ScreenHeight != SNES_HEIGHT_EXTENDED)
 	    GFX.Screen = (uint8 *) framebuffer16[currFB]+ (640*8) + 64;
 	  else
@@ -302,9 +340,31 @@ extern "C"
 
    bool8_32 S9xDeinitUpdate (int Width, int Height, bool8_32)
    {
+#if defined (__WIZ__)
+		if ( snesMenuOptions.renderMode == RENDER_MODE_SCALED)
+#else
+		if ( snesMenuOptions.renderMode == RENDER_MODE_SCALED && oldHeight!=Height)
+#endif
+		{
+			gp_video_RGB_setscaling(256,Height);
+			oldHeight=Height;
+		}
+#if defined (__WIZ__)
+		else if ( snesMenuOptions.renderMode == RENDER_MODE_HORIZONTAL_SCALED)
+		{
+			gp_video_RGB_setHZscaling(256,Height); 
+			oldHeight=Height;
+		}
+#endif
+
+
+		if ((CPU.SRAMModified) && (snesMenuOptions.autoSram == 2)) Draw16x16Image(framebuffer16[currFB], 320-16, 240-16, disk_img);
+
+
+
 		if (snesMenuOptions.showFps) 
 		{
-			unsigned int *pix;
+			unsigned int *pix;			
 			pix=(unsigned int*)framebuffer16[currFB];
 			for(int i=8;i;i--)
 			{
@@ -342,14 +402,10 @@ extern "C"
 				*pix++ = 0x0;
 				pix+=128;
 			}
+			gp_setClipping(0, 0, 319, 239);
 			gp_drawString(0,0,strlen(fps_display),fps_display,0xFFFF,(unsigned char*)framebuffer16[currFB]);
 		}
-		if ( snesMenuOptions.renderMode == RENDER_MODE_SCALED && oldHeight!=Height)
-		{
-			gp2x_video_RGB_setscaling(256,Height);
-			oldHeight=Height;
-		}
-    // TODO clear Z buffer if not in fastsprite mode
+		
 		gp_setFramebuffer(currFB,0);
    }
 
@@ -377,27 +433,18 @@ extern "C"
 
 	   if (which1 != 0) return val;
 		unsigned long joy = gp_getButton(0);
-		      
-		if (snesMenuOptions.actionButtons)
-		{
-			if (joy & (1<<INP_BUTTON_REWIND)) val |= SNES_Y_MASK;
-			if (joy & (1<<INP_BUTTON_FORWARD)) val |= SNES_A_MASK;
-			if (joy & (1<<INP_BUTTON_PLAY)) val |= SNES_B_MASK;
-			if (joy & (1<<INP_BUTTON_STOP)) val |= SNES_X_MASK;
-		}
-		else
-		{
-			if (joy & (1<<INP_BUTTON_REWIND)) val |= SNES_A_MASK;
-			if (joy & (1<<INP_BUTTON_FORWARD)) val |= SNES_B_MASK;
-			if (joy & (1<<INP_BUTTON_PLAY)) val |= SNES_X_MASK;
-			if (joy & (1<<INP_BUTTON_STOP)) val |= SNES_Y_MASK;
-		}
+		 
+		if (joy & (1<<INP_BUTTON_REWIND)) val |= SNES_Y_MASK;
+		if (joy & (1<<INP_BUTTON_FORWARD)) val |= SNES_A_MASK;
+		if (joy & (1<<INP_BUTTON_PLAY)) val |= SNES_B_MASK;
+		if (joy & (1<<INP_BUTTON_STOP)) val |= SNES_X_MASK;
 			
 		if (joy & (1<<INP_BUTTON_UP)) val |= SNES_UP_MASK;
 		if (joy & (1<<INP_BUTTON_DOWN)) val |= SNES_DOWN_MASK;
 		if (joy & (1<<INP_BUTTON_LEFT)) val |= SNES_LEFT_MASK;
 		if (joy & (1<<INP_BUTTON_RIGHT)) val |= SNES_RIGHT_MASK;
 		if (joy & (1<<INP_BUTTON_HOME)) val |= SNES_START_MASK;
+		if (joy & (1<<INP_BUTTON_VOL)) val |= SNES_SELECT_MASK;
 		if (joy & (1<<INP_BUTTON_L)) val |= SNES_TL_MASK;
 		if (joy & (1<<INP_BUTTON_R)) val |= SNES_TR_MASK;
 		
@@ -450,19 +497,75 @@ extern "C"
 		{
 			snesMenuOptions.volume+=1;
 			if(snesMenuOptions.volume>100) snesMenuOptions.volume=100;
-			gp2x_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
+			gp_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
 		}
 		else if (joy & (1<<INP_BUTTON_VOL_DOWN))	
 		{
 			snesMenuOptions.volume-=1;
 			if(snesMenuOptions.volume>100) snesMenuOptions.volume=0;
-			gp2x_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
+			gp_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
 		}
 		
       return val;
    }
 #endif
 
+#ifdef __WIZ__
+   uint32 S9xReadJoypad (int which1)
+   {
+		uint32 val=0x80000000;
+		if (which1 != 0) return val;
+
+		unsigned long joy = 0;
+		
+		joy = gp_getButton(1);
+
+		if (snesMenuOptions.actionButtons)
+		{
+			if (joy & (1<<INP_BUTTON_A)) val |= SNES_Y_MASK;
+			if (joy & (1<<INP_BUTTON_B)) val |= SNES_A_MASK;
+			if (joy & (1<<INP_BUTTON_X)) val |= SNES_B_MASK;
+			if (joy & (1<<INP_BUTTON_Y)) val |= SNES_X_MASK;
+		}
+		else
+		{
+			if (joy & (1<<INP_BUTTON_A)) val |= SNES_A_MASK;
+			if (joy & (1<<INP_BUTTON_B)) val |= SNES_B_MASK;
+			if (joy & (1<<INP_BUTTON_X)) val |= SNES_X_MASK;
+			if (joy & (1<<INP_BUTTON_Y)) val |= SNES_Y_MASK;
+		}
+			
+		if (joy & (1<<INP_BUTTON_UP)) val |= SNES_UP_MASK;
+		if (joy & (1<<INP_BUTTON_DOWN)) val |= SNES_DOWN_MASK;
+		if (joy & (1<<INP_BUTTON_LEFT)) val |= SNES_LEFT_MASK;
+		if (joy & (1<<INP_BUTTON_RIGHT)) val |= SNES_RIGHT_MASK;
+		if (joy & (1<<INP_BUTTON_START)) val |= SNES_START_MASK;
+		if (joy & (1<<INP_BUTTON_L)) val |= SNES_TL_MASK;
+		if (joy & (1<<INP_BUTTON_R)) val |= SNES_TR_MASK;
+		
+		if (joy & (1<<INP_BUTTON_SELECT)) val |= SNES_SELECT_MASK;
+		
+#ifdef __CAANOO__
+		if (joy & (1<<INP_BUTTON_HOME))	enterMenu = 1;
+#else
+		if ((joy & (1<<INP_BUTTON_VOL_UP)) && (joy & (1<<INP_BUTTON_VOL_DOWN)))	enterMenu = 1;
+#endif
+		else if (joy & (1<<INP_BUTTON_VOL_UP)) 
+		{
+			snesMenuOptions.volume+=1;
+			if(snesMenuOptions.volume>100) snesMenuOptions.volume=100;
+			gp_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
+		}
+		else if (joy & (1<<INP_BUTTON_VOL_DOWN))	
+		{
+			snesMenuOptions.volume-=1;
+			if(snesMenuOptions.volume>100) snesMenuOptions.volume=0;
+			gp_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
+		}
+		
+      return val;
+   }
+#endif
 
    bool8 S9xReadMousePosition (int /* which1 */, int &/* x */, int & /* y */,
 			    uint32 & /* buttons */)
@@ -503,15 +606,7 @@ extern "C"
 
 };
 
-bool8_32 S9xOpenSoundDevice (int mode, bool8_32 stereo, int buffer_size)
-	{
-		so.sound_switch = 255;
-		so.playback_rate = mode;
-		so.stereo = FALSE;//stereo;
-		return TRUE;
-	}
 
-	
 void S9xAutoSaveSRAM (void)
 {
 	//since I can't sync the data, there is no point in even writing the data
@@ -524,7 +619,7 @@ void S9xLoadSRAM (void)
 {
 	char path[MAX_PATH];
 	
-	sprintf(path,"%s%s%s",snesSramDir,DIR_SEPERATOR,S9xGetFilename (".srm"));
+	sprintf(path,"%s%s%s",snesSramDir,DIR_SEP,S9xGetFilename (".srm"));
 	Memory.LoadSRAM (path);
 }
 
@@ -534,8 +629,15 @@ void S9xSaveSRAM (void)
 	
 	if (CPU.SRAMModified)
 	{
-		sprintf(path,"%s%s%s",snesSramDir,DIR_SEPERATOR,S9xGetFilename (".srm"));
+		sprintf(path,"%s%s%s",snesSramDir,DIR_SEP,S9xGetFilename (".srm"));
 		Memory.SaveSRAM (path);
+		CPU.SRAMModified = FALSE;
+		if (snesMenuOptions.autoSram == 2) { 
+			Draw16x16Square(framebuffer16[0], 320-16, 240-16, 0, 0, 0);
+			Draw16x16Square(framebuffer16[1], 320-16, 240-16, 0, 0, 0);
+			Draw16x16Square(framebuffer16[2], 320-16, 240-16, 0, 0, 0);
+			Draw16x16Square(framebuffer16[3], 320-16, 240-16, 0, 0, 0);
+			}	
 		sync();
 	}
 }
@@ -549,73 +651,194 @@ void JustifierButtons(uint32& justifiers)
 {
 }
 
+int os9x_findhacks(int game_crc32){
+	int i=0,j;
+	int _crc32;	
+	char c;
+	char str[256];
+	unsigned int size_snesadvance;
+	unsigned char *snesadvance;
+	FILE *f;
+	
+	sprintf(str,"%s/snesadvance.dat",currentWorkingDir);
+	f=fopen(str,"rb");
+	if (!f) return 0;
+	fseek(f,0,SEEK_END);
+	size_snesadvance=ftell(f);
+	fseek(f,0,SEEK_SET);
+	snesadvance=(unsigned char*)malloc(size_snesadvance);
+	fread(snesadvance,1,size_snesadvance,f);
+	fclose(f);
+	
+	for (;;) {
+		//get crc32
+		j=i;
+		while ((i<size_snesadvance)&&(snesadvance[i]!='|')) i++;
+		if (i==size_snesadvance) {free(snesadvance);return 0;}
+		//we have (snesadvance[i]=='|')
+		//convert crc32 to int
+		_crc32=0;
+		while (j<i) {
+			c=snesadvance[j];
+			if ((c>='0')&&(c<='9'))	_crc32=(_crc32<<4)|(c-'0');
+			else if ((c>='A')&&(c<='F'))	_crc32=(_crc32<<4)|(c-'A'+10);
+			else if ((c>='a')&&(c<='f'))	_crc32=(_crc32<<4)|(c-'a'+10);				
+			j++;
+		}
+		if (game_crc32==_crc32) {
+			char text[32];
+			//gp_clearFramebuffer16(framebuffer16[currFB],0x0);
+			//sprintf(text,"Loading speed hacks...");
+			//gp_drawString(0,0,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+			//MenuFlip();
+			loadingPrint("Loading speed hacks...");
+			sleep(2);
+			//int p=0;
+			for (;;) {
+				int adr,val;
+							
+				i++;
+				j=i;
+				while ((i<size_snesadvance)&&(snesadvance[i]!=0x0D)&&(snesadvance[i]!=',')) {
+					if (snesadvance[i]=='|') j=i+1;
+					i++;
+				}
+				if (i==size_snesadvance) {free(snesadvance);return 0;}
+				memcpy(str,&snesadvance[j],i-j);
+				str[i-j]=0;								
+				sscanf(str,"%X=%X",&adr,&val);
+				//sprintf(str,"read : %X=%X",adr,val);
+				//pgPrintAllBG(32,31-p++,0xFFFF,str);
+				
+				if ((val==0x42)||((val&0xFF00)==0x4200)) {					
+					if (val&0xFF00) {
+						ROM[adr]=(val>>8)&0xFF;
+						ROM[adr+1]=val&0xFF;
+					} else ROM[adr]=val;
+				}
+				
+				if (snesadvance[i]==0x0D) {free(snesadvance);return 1;				}
+			}
+				
+		}
+		while ((i<size_snesadvance)&&(snesadvance[i]!=0x0A)) i++;
+		if (i==size_snesadvance) {free(snesadvance);return 0;}
+		i++; //new line
+	}
+}
+
 static int SnesRomLoad()
 {
 	char filename[MAX_PATH+1];
+	char *fLoad;
+	char *cFile;
 	int check;
-	char text[256];
+	int x;
+	char text[2048];
 	FILE *stream=NULL;
   
-    gp_clearFramebuffer16(framebuffer16[currFB],0x0);
-	sprintf(text,"Loading Rom...");
-	gp_drawString(0,0,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
-	MenuFlip();
-	S9xReset();
-	//Save current rom shortname for save state etc
-	strcpy(currentRomFilename,romList[currentRomIndex].filename);
-	
+ 	
 	// get full filename
-	sprintf(filename,"%s%s%s",romDir,DIR_SEPERATOR,currentRomFilename);
+	if (!lastLoaded) {
+		sprintf(filename,"%s%s%s",romDir,DIR_SEP,currentRomFilename);
+		fLoad = filename;
+		cFile = currentRomFilename;
+		}
+	else {
+		int x;
+		x = strlen(lastLoadedFile);
+		for (; x > 0; x--) 
+			if (lastLoadedFile[x] == '/') {
+				x++;
+				break;
+				}; 
+		fLoad = lastLoadedFile;
+		cFile = &lastLoadedFile[x];
+		strcpy(currentRomFilename, cFile);
+		}
 	
-	if (!Memory.LoadROM (filename))
+   	//gp_clearFramebuffer16(framebuffer16[currFB],0x0);
+	loadingFB = framebuffer16[currFB];
+	loadingY = 45;
+	gp_setClipping(0, 0, 319, 239);
+	gClearScreen(loadingFB, tBackgroundColor);	
+	if (tBmpLoading != NULL) gDrawBitmap16(loadingFB, 0, 0, tBmpLoading, 0, 0, tBmpLoading->w, tBmpLoading->h);	
+	gp_setClipping(20, 40, 320 - 20, 240 - 40);
+	MenuFlip();
+	//sprintf(text,"Loading Rom...");
+	//gp_drawString(0,0,strlen(text),text,tTextColorLoading,(unsigned char*)framebuffer16[currFB]);
+	loadingPrint("Loading Rom...");	
+	//x = strlen(cFile);
+	//if (x > 40) x = 40;		
+	//gp_drawString(0,8,x,cFile,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+	loadingPrint(cFile);
+	S9xReset();
+
+	if (!Memory.LoadROM (fLoad))
 	{
-		sprintf(text,"Loading Rom...Failed");
-		gp_drawString(0,0,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
-		MenuFlip();
+		//sprintf(text,"Loading ROM...Failed");
+		//gp_drawString(0,0,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+		//gp_drawString(0,8,x,cFile,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+		loadingPrint("Loading ROM...Failed");		
+		loadingPrint("[Press a button to continue]");		
+		//sprintf(text, "Press a button to continue.");		
+		//gp_drawString(0,16,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+		//MenuFlip();
 		MenuPause();
 		return 0;
 	}
+
+	if (!lastLoaded) setConfigValue(CONFIG_LASTLOADED, filename);
+	else lastLoaded = false;
 	
-	sprintf(text,"Loading Rom...OK!");
-	gp_drawString(0,0,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
-	sprintf(text,"Loading Sram");
-	gp_drawString(0,8,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
-	MenuFlip();
+	//sprintf(text,"Loading Rom...OK!");
+	//gp_drawString(0,0,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+	//sprintf(text,"Loading Sram");
+	//gp_drawString(0,8,strlen(text),text,0xFFFF,(unsigned char*)framebuffer16[currFB]);
+	//MenuFlip();
+	loadingPrint("Loading ROM...OK!");
+	loadingPrint("Loading SRAM...");
 	
 	//Memory.LoadSRAM (S9xGetFilename (".srm")); 
 	S9xLoadSRAM();
 
 	//auto load default config for this rom if one exists
-	if (LoadMenuOptions(snesOptionsDir, currentRomFilename, MENU_OPTIONS_EXT, (char*)&snesMenuOptions, sizeof(snesMenuOptions),1))
+	loadingPrint("Loading ROM options...");
+	if (LoadMenuOptions(snesOptionsDir, currentRomFilename, MENU_OPTIONS_EXT, (char*)&snesMenuOptions, sizeof(snesMenuOptions),0))
 	{
+		loadingPrint("Not found. Loading global options...");
 		//failed to load options for game, so load the default global ones instead
-		if (LoadMenuOptions(snesOptionsDir, MENU_OPTIONS_FILENAME, MENU_OPTIONS_EXT, (char*)&snesMenuOptions, sizeof(snesMenuOptions),1))
+		if (LoadMenuOptions(snesOptionsDir, MENU_OPTIONS_FILENAME, MENU_OPTIONS_EXT, (char*)&snesMenuOptions, sizeof(snesMenuOptions),0))
 		{
 			//failed to load global options, so use default values
 			SnesDefaultMenuOptions();
 		}
 	}
-	
-	gp_clearFramebuffer16(framebuffer16[currFB],0x0);
-	
+	if (Settings.SpeedHacks) os9x_findhacks(Memory.CalculatedChecksum);
+
+	//gp_clearFramebuffer16(framebuffer16[currFB],0x0);
+	gp_setClipping(0, 0, 319, 239);	
 	return(1);
 }
 
+#ifdef __GIZ__
 static int SegAim()
 {
-#ifdef __GIZ__
-  int aim=FrameworkAudio_GetCurrentBank(); 
-#endif
-#ifdef __GP2X__
-  int aim=CurrentSoundBank; 
-#endif
-  
 
+	int aim=FrameworkAudio_GetCurrentBank();
+	return aim;
+}
+#endif
+
+#if defined(__GP2X__) || defined(__WIZ__) 
+static int SegAim()
+{
+  int aim=CurrentSoundBank; 
   aim--; if (aim<0) aim+=8;
 
   return aim;
 }
-	
+#endif
 
 
 void _makepath (char *path, const char *, const char *dir,
@@ -683,32 +906,275 @@ int  (*statef_read)(void *p, int l);
 int  (*statef_write)(void *p, int l);
 void (*statef_close)();
 static FILE  *state_file = 0;
+static char state_filename[MAX_PATH];
+static char *state_mem = NULL;
+static int state_mem_pos = 0;
+static int state_mem_size=0;
+static int state_mode = 0;
+static int open_mode = 0;
+
+int check_zip(char *filename)
+{
+    uint8 buf[2];
+    FILE *fd = NULL;
+    fd = (FILE*)fopen(filename, "rb");
+    if(!fd) return (0);
+    fread(buf, 1, 2, fd);
+    fclose(fd);
+    if(memcmp(buf, "PK", 2) == 0) return (1);
+    return (0);
+}
+
+static char *load_archive(char *filename, int *file_size)
+{
+    int size = 0;
+    char *buf = NULL;
+    char text[128];	
+
+    unzFile fd = NULL;
+    unz_file_info info;
+    int ret = 0;
+         
+	/* Attempt to open the archive */
+	fd = unzOpen(filename);
+	if(!fd)
+	{
+		printf("Failed to open archive\r\n");
+		return NULL;
+	}
+
+	/* Go to first file in archive */
+	ret = unzGoToFirstFile(fd);
+	if(ret != UNZ_OK)
+	{
+		printf("Failed to find first file in zip\r\n");
+		unzClose(fd);
+		return NULL;
+	}
+
+	ret = unzGetCurrentFileInfo(fd, &info, NULL, 0, NULL, 0, NULL, 0);
+	if(ret != UNZ_OK)
+	{
+		printf("Failed to zip info\r\n");
+        unzClose(fd);
+        return NULL;
+	}
+
+	/* Open the file for reading */
+	ret = unzOpenCurrentFile(fd);
+	if(ret != UNZ_OK)
+	{
+	    printf("Failed to read file\r\n");
+		unzClose(fd);
+		return NULL;
+	}
+
+	/* Allocate file data buffer */
+	size = info.uncompressed_size;
+	buf=(char*)malloc(size);
+	if(!buf)
+	{
+		printf("Failed to malloc zip buffer\r\n");
+		unzClose(fd);
+		return NULL;
+	}
+	
+	/* Read (decompress) the file */
+	ret = unzReadCurrentFile(fd, buf, info.uncompressed_size);
+	if(ret != info.uncompressed_size)
+	{
+		free(buf);
+	    printf("File failed to uncompress fully\r\n");
+	    unzCloseCurrentFile(fd);
+		unzClose(fd);
+		return NULL;
+	}
+
+	/* Close the current file */
+	ret = unzCloseCurrentFile(fd);
+	if(ret != UNZ_OK)
+	{
+		free(buf);
+	    printf("Failed to close file in zip\r\n");
+	    unzClose(fd);
+		return NULL;
+	}
+
+	/* Close the archive */
+	ret = unzClose(fd);
+	if(ret != UNZ_OK)
+	{
+		free(buf);
+	    printf("Failed to close zip\r\n");
+	    return NULL;
+	}
+
+	/* Update file size and return pointer to file data */
+	*file_size = size;
+	return buf;
+}
+
+static int save_archive(char *filename, char *buffer, int size)
+{
+    uint8 *buf = NULL;
+    char text[128]="";	
+    zipFile fd = NULL;
+    int ret = 0;
+    fd=zipOpen(filename,0);
+    if(!fd)
+    {
+       printf("Failed to create zip\r\n");
+       return (0);
+    }
+
+    ret=zipOpenNewFileInZip(fd,"SNAPSHOT",
+			    NULL,
+				NULL,0,
+			    NULL,0,
+			    NULL,
+			    Z_DEFLATED,
+			    Z_BEST_COMPRESSION);
+			    
+    if(ret != ZIP_OK)
+    {
+       zipClose(fd,NULL);
+       printf("Failed to create file in zip\r\n");
+       return (0);    
+    }
+
+    ret=zipWriteInFileInZip(fd,buffer,size);
+    if(ret != ZIP_OK)
+    {
+      zipCloseFileInZip(fd);
+      zipClose(fd,NULL);
+      printf("Failed to write file in zip\r\n");
+      return (0);
+    }
+
+    ret=zipCloseFileInZip(fd);
+    if(ret != ZIP_OK)
+    {
+      zipClose(fd,NULL);
+      printf("Failed to close file in zip\r\n");
+      return (0);
+    }
+
+    ret=zipClose(fd,NULL);
+    if(ret != ZIP_OK)
+    {
+      printf("Failed to close zip\r\n");
+      return (0);
+    }
+	
+    return(1);
+}
 
 int state_unc_open(const char *fname, const char *mode)
 {
-	state_file = fopen(fname, mode);
-	return (int) state_file;
+	//mode = "wb"  or "rb"
+	//If mode is write then create a new buffer to hold written data
+	//when file is closed buffer will be compressed to zip file and then freed
+	if(mode[0]=='r')
+	{
+		//Read mode requested
+		if(check_zip((char*)fname))
+		{
+			//File is a zip, so uncompress
+			state_mode = 1; //zip mode
+			open_mode = 0;
+			state_mem=load_archive((char*)fname,&state_mem_size);
+			if(!state_mem) return 0;
+			state_mem_pos=0;
+			strcpy(state_filename,fname);
+			return 1;
+		}
+		else
+		{
+			state_mode = 0; //normal file mode
+			state_file = fopen(fname, mode);
+			return (int) state_file;
+		}
+	}
+	else
+	{
+		//Write mode requested. Zip only option
+		open_mode = 1;
+		state_mode = 1; //normal file mode
+		state_mem=(char*)malloc(200);
+		state_mem_size=200;
+		state_mem_pos = 0;
+		strcpy(state_filename,fname);
+		return 1;
+	}
 }
 
 int state_unc_read(void *p, int l)
 {
-	return fread(p, 1, l, state_file);
+	if(state_mode==0)
+	{
+		return fread(p, 1, l, state_file);
+	}
+	else
+	{
+		
+		if((state_mem_pos+l)>state_mem_size)
+		{
+			//Read requested that exceeded memory limits
+			return 0;
+		}
+		else
+		{
+			memcpy(p,state_mem+state_mem_pos,l);
+			state_mem_pos+=l;
+		}
+		return l;
+	}
 }
 
 int state_unc_write(void *p, int l)
 {
-	return fwrite(p, 1, l, state_file);
+	if(state_mode==0)
+	{
+		return fwrite(p, 1, l, state_file);
+	}
+	else
+	{
+		if((state_mem_pos+l)>state_mem_size)
+		{
+			printf("realloc\r\n");
+			//Write will exceed current buffer, re-alloc buffer and continue
+			state_mem=(char*)realloc(state_mem,state_mem_pos+l);
+			state_mem_size=state_mem_pos+l;
+		}
+		//Now do write
+		memcpy(state_mem+state_mem_pos,p,l);
+		state_mem_pos+=l;
+		return l;
+	}
 }
 
 void state_unc_close()
 {
-	fclose(state_file);
+	if(state_mode==0)
+	{
+		fclose(state_file);
+	}
+	else
+	{
+		if (open_mode == 1)
+			save_archive(state_filename,state_mem,state_mem_size);
+		free(state_mem);
+		state_mem=NULL;
+		state_mem_size=0;
+		state_mem_pos=0;
+		state_filename[0]=0;
+	}
 }
 
 char **g_argv;
 int main(int argc, char *argv[])
 {
- 	unsigned int i = 0;
+ 	unsigned int i,j = 0;
 	unsigned int romrunning = 0;
 	int aim=0, done=0, skip=0, Frames=0, fps=0, tick=0,efps=0;
 	uint8 *soundbuffer=NULL;
@@ -716,7 +1182,7 @@ int main(int argc, char *argv[])
 	int action=0;
 	int romloaded=0;
 	char text[256];
-	bool8  ROMAPUEnabled = 0;
+	DIR *d;
 	
 	g_argv = argv;
 	
@@ -727,24 +1193,26 @@ int main(int argc, char *argv[])
 	statef_close = state_unc_close;
 	
 	
-#if defined (__GP2X__)
-	//getwd(currentWorkingDir); naughty do not use!
+
 	getcwd(currentWorkingDir, MAX_PATH);
-#else
-	strcpy(currentWorkingDir,SYSTEM_DIR);
+	CheckDirSep(currentWorkingDir);
+
+	sprintf(snesOptionsDir,"%s%s%s",currentWorkingDir,DIR_SEP,SNES_OPTIONS_DIR);
+	sprintf(snesSramDir,"%s%s%s",currentWorkingDir,DIR_SEP,SNES_SRAM_DIR);
+	sprintf(snesSaveStateDir,"%s%s%s",currentWorkingDir,DIR_SEP,SNES_SAVESTATE_DIR);
+
+#ifdef	__WIZ__
+	setpriority (PRIO_PROCESS, 0, -20);
 #endif
-	sprintf(snesOptionsDir,"%s%s%s",currentWorkingDir,DIR_SEPERATOR,SNES_OPTIONS_DIR);
-	sprintf(snesSramDir,"%s%s%s",currentWorkingDir,DIR_SEPERATOR,SNES_SRAM_DIR);
-	sprintf(snesSaveStateDir,"%s%s%s",currentWorkingDir,DIR_SEPERATOR,SNES_SAVESTATE_DIR);
 
 	
 	InputInit();  // clear input context
 
 	//ensure dirs exist
 	//should really check if these worked but hey whatever
-	mkdir(snesOptionsDir,0);
-	mkdir(snesSramDir,0);
-	mkdir(snesSaveStateDir,0);
+	mkdir(snesOptionsDir,0777);
+	mkdir(snesSramDir,0777);
+	mkdir(snesSaveStateDir,0777);
 
 	printf("Loading global menu options\r\n"); fflush(stdout);
 	if (LoadMenuOptions(snesOptionsDir,MENU_OPTIONS_FILENAME,MENU_OPTIONS_EXT,(char*)&snesMenuOptions, sizeof(snesMenuOptions),0))
@@ -761,12 +1229,26 @@ int main(int argc, char *argv[])
 		printf("Failed to default rom dir, so using current dir\r\n"); fflush(stdout);
 		strcpy(snesRomDir,currentWorkingDir);
 	}
-
-	// Init graphics (must be done before MMUHACK)
-	gp_initGraphics(16,0,snesMenuOptions.mmuHack);
 	
+	//Check that rom directory actually exists
+	d = opendir(snesRomDir);
+	if(d)
+	{
+		closedir(d);
+	}
+	else
+	{
+		//Failed to open Rom directory, so reset to current directory
+		strcpy(snesRomDir,currentWorkingDir);
+	}
+	
+	// Init graphics (must be done before MMUHACK)
+	gp_initGraphics(16,0,1);
+	
+	
+
 #ifdef __GP2X__
-	if (snesMenuOptions.ramSettings)
+	if (1)
 	{
 		printf("Craigs RAM settings are enabled.  Now applying settings..."); fflush(stdout);
 		// craigix: --trc 6 --tras 4 --twr 1 --tmrd 1 --trfc 1 --trp 2 --trcd 2
@@ -820,24 +1302,33 @@ int main(int argc, char *argv[])
 	Settings.TurboSkipFrames = 15;
 	Settings.ThreadSound = FALSE;
 	Settings.SoundSync = FALSE;
+	Settings.asmspc700 = TRUE;
+	Settings.SpeedHacks = TRUE;
+
 	//Settings.NoPatch = true;		
 
-	//GFX.RealPitch = GFX.Pitch = 318 * 2;
-	
-	GFX.Pitch = 320 * 2;
-	GFX.RealPitch = 320 * 2;
-	vrambuffer = (uint8 *) malloc (GFX.RealPitch * 480 * 2);
-	memset (vrambuffer, 0, GFX.RealPitch*480*2);
-	GFX.Screen = vrambuffer;//+32*240*2;
-	
-	GFX.SubScreen = (uint8 *)malloc(GFX.RealPitch * 480 * 2); 
-	GFX.ZBuffer =  (uint8 *)malloc(GFX.RealPitch * 480 * 2); 
-	GFX.SubZBuffer = (uint8 *)malloc(GFX.RealPitch * 480 * 2);
+	//initScreenShots();
+
+	GFX.Screen = (uint8 *) framebuffer16[currFB];
+#if defined(__WIZ__) || defined(__GP2X__)
+	GFX.SubScreen = (uint8 *)malloc(GFX_PITCH * 240 * 2);
+	GFX.ZBuffer =  (uint8 *)malloc(0x13000*2);
+	GFX.SubZBuffer = GFX.ZBuffer + ZDELTA;
+	//GFX.ZBuffer =  (uint8 *)malloc(320 * 240); 
+	//GFX.SubZBuffer = (uint8 *)malloc(320 * 240);
 	GFX.Delta = (GFX.SubScreen - GFX.Screen) >> 1;
-	GFX.PPL = GFX.Pitch >> 1;
-	GFX.PPLx2 = GFX.Pitch;
-	GFX.ZPitch = GFX.Pitch >> 1;
-	
+#else
+	GFX.SubScreen = (uint8 *)malloc(GFX_PITCH * 480 * 2); 
+	GFX.ZBuffer =  (uint8 *)malloc(GFX_PITCH * 480 * 2); 
+	GFX.SubZBuffer = (uint8 *)malloc(GFX_PITCH * 480 * 2);
+	GFX.Delta = (GFX.SubScreen - GFX.Screen) >> 1;
+#endif
+
+#if defined(__WIZ__)
+	pOutputScreen = NULL;
+	pOutputScreen = (uint16 *)malloc(320*240*2);	
+#endif
+
 	if (Settings.ForceNoTransparency)
          Settings.Transparency = FALSE;
 
@@ -856,24 +1347,37 @@ int main(int argc, char *argv[])
 
 	if (!S9xGraphicsInit ())
          erk();
+
+	// Look for last loaded game
+	if (snesMenuOptions.loadOnInit == 1) {
+		getConfigValue(CONFIG_LASTLOADED, lastLoadedFile, sizeof(lastLoadedFile)-1) ;
+		action = EVENT_LOAD_SNES_ROM;
+		lastLoaded = true;
+	}
          	
 	while (1)
 	{
-		
 		S9xSetSoundMute (TRUE);
-		action=MainMenu(action);
-		gp_clearFramebuffer16(framebuffer16[currFB],0x0);
+
+		if (!lastLoaded) {
+			getScreenShot(framebuffer16[prevFB]);
+			initTheme();
+			action=MainMenu(action);
+			destroyScreenShot();
+			}
+
+		//gp_clearFramebuffer16(framebuffer16[currFB],0x0);
 		if (action==EVENT_EXIT_APP) break;
 		
 		if (action==EVENT_LOAD_SNES_ROM)
 		{
 			// user wants to load a rom
+			Settings.SpeedHacks = snesMenuOptions.SpeedHacks;
+			gp_setCpuspeed(MENU_FAST_CPU_SPEED);
 			romloaded=SnesRomLoad();
+			gp_setCpuspeed(MENU_CPU_SPEED);
 			if(romloaded)  	
 			{
-				#ifdef ASM_SPC700
-				ROMAPUEnabled = Settings.APUEnabled;
-				#endif
 				action=EVENT_RUN_SNES_ROM;   // rom loaded okay so continue with emulation
 			}
 			else
@@ -883,19 +1387,66 @@ int main(int argc, char *argv[])
 		if (action==EVENT_RESET_SNES_ROM)
 		{
 			// user wants to reset current game
+			Settings.asmspc700 = snesMenuOptions.asmspc700;
+			Settings.SpeedHacks = snesMenuOptions.SpeedHacks;
 			S9xReset();
 			action=EVENT_RUN_SNES_ROM;
 		}
 
 		if (action==EVENT_RUN_SNES_ROM)
 		{		
+#ifdef __WIZ__
+			// scaling ?
+	 		if (snesMenuOptions.renderMode == RENDER_MODE_UNSCALED) {
+				if (pOutputScreen) {
+					free(pOutputScreen);
+					pOutputScreen = NULL;
+				}
+			} else {
+				if (!pOutputScreen) { 
+					pOutputScreen = (uint16 *)malloc(320*240*2);
+					if (!pOutputScreen) snesMenuOptions.renderMode == RENDER_MODE_UNSCALED;
+					}	
+			}
+#endif
 			// any change in configuration?
 			gp_setCpuspeed(cpuSpeedLookup[snesMenuOptions.cpuSpeed]);
-			gp_clearFramebuffer16(framebuffer16[0],0x0);
-			gp_clearFramebuffer16(framebuffer16[1],0x0);
-			gp_clearFramebuffer16(framebuffer16[2],0x0);
-			gp_clearFramebuffer16(framebuffer16[3],0x0);
+			gp_clearFramebuffer16(framebuffer16[0], tBackgroundColor);
+			gp_clearFramebuffer16(framebuffer16[1], tBackgroundColor);
+			gp_clearFramebuffer16(framebuffer16[2], tBackgroundColor);
+			gp_clearFramebuffer16(framebuffer16[3], tBackgroundColor);
+			if (tBmpInGame) {
+				gDrawBitmap16(framebuffer16[0], 0, 0, tBmpInGame, 0, 0, tBmpInGame->w, tBmpInGame->h);
+				gDrawBitmap16(framebuffer16[1], 0, 0, tBmpInGame, 0, 0, tBmpInGame->w, tBmpInGame->h);
+				gDrawBitmap16(framebuffer16[2], 0, 0, tBmpInGame, 0, 0, tBmpInGame->w, tBmpInGame->h);
+				gDrawBitmap16(framebuffer16[3], 0, 0, tBmpInGame, 0, 0, tBmpInGame->w, tBmpInGame->h);
+			}
+			destroyTheme();
+
+			// Set APU speed
+			switch (IAPU.OneCycle) {
+				case 13:
+					IAPU.asmJumpTab = &Spc700JumpTab_13;
+					break;
+				case 14:
+					IAPU.asmJumpTab = &Spc700JumpTab_14;
+					break;
+				//default:
+				case 15:
+					IAPU.asmJumpTab = &Spc700JumpTab_15;
+					break;
+				default:
+				case 21:
+					IAPU.asmJumpTab = &Spc700JumpTab_21;
+					break;
+				}
+
+#ifdef ASMCPU
+			CPU.DSPGet = (void *)GetDSP;
+			CPU.DSPSet = (void *)SetDSP;
+#endif
 			
+			Settings.os9x_hack = snesMenuOptions.graphHacks;
 			if (snesMenuOptions.transparency)
 			{
 				Settings.Transparency = TRUE;
@@ -906,6 +1457,8 @@ int main(int argc, char *argv[])
 				Settings.Transparency = FALSE;
 				Settings.SixteenBit = TRUE;
 			}
+
+			//SelectUpdateScreen();
 			switch (snesMenuOptions.region)
 			{
 				case 0:				
@@ -941,35 +1494,40 @@ int main(int argc, char *argv[])
 				gp32_ShowSub = 0;
 				gp32_fastsprite = 1;
 				gp32_gammavalue = snesMenuOptions.gamma;
-				squidgetranshack = 0;
-				CPU.APU_APUExecuting = Settings.APUEnabled = ROMAPUEnabled | 1;
+				Settings.asmspc700 = snesMenuOptions.asmspc700;
+				if (snesMenuOptions.soundHack)
+					CPU.APU_APUExecuting = Settings.APUEnabled = 3;
+				else
+				{
+						CPU.APU_APUExecuting = Settings.APUEnabled = 1;					
+				}
 				Settings.SoundPlaybackRate=(unsigned int)soundRates[snesMenuOptions.soundRate];
-				samplecount=Settings.SoundPlaybackRate/frame_limit ;
 				Settings.SixteenBitSound=true;
-				Settings.Stereo=false;
-				Settings.SoundBufferSize=samplecount<<(1+(Settings.Stereo?1:0));
+				Settings.Stereo=snesMenuOptions.stereo;
+				samplecount=Settings.SoundPlaybackRate/frame_limit;
+				if (Settings.Stereo)
+					samplecount = samplecount * 2;
 				gp_initSound(Settings.SoundPlaybackRate,16,Settings.Stereo,frame_limit,0x0002000F);
 				so.stereo = Settings.Stereo;
 				so.playback_rate = Settings.SoundPlaybackRate;
-				//S9xInitSound (Settings.SoundPlaybackRate, Settings.Stereo, Settings.SoundBufferSize);
 				S9xSetPlaybackRate(so.playback_rate);
 				S9xSetSoundMute (FALSE);
-#if defined(__GP2X__)
+#if defined(__GP2X__) || defined(__WIZ__)
 				SoundThreadFlag = SOUND_THREAD_SOUND_ON;
 #endif
-				gp2x_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
+				gp_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
 			
 				while (1)
 				{   	
 					for (i=10;i;i--)
 					{
-						Timer=gp2x_timer_read();
+						Timer=gp_timer_read();
 					    if(Timer-tick>TIMER_1_SECOND)
 						{
 					       fps=Frames;
 					       Frames=0;
 					       tick=Timer;
-					       sprintf(fps_display,"Fps: %d",fps);
+					       sprintf(fps_display,"Fps: %2d",fps);
 				        }
 						else if (Timer<tick) 
 						{
@@ -984,28 +1542,38 @@ int main(int argc, char *argv[])
 #ifdef __GIZ__
 							soundbuffer=(uint8 *)FrameworkAudio_GetAudioBank(done);
 #endif
-#ifdef __GP2X__
+#if defined(__GP2X__) || defined(__WIZ__)
 							soundbuffer=(uint8 *)pOutput[done];
 #endif
 							done++; if (done>=8) done=0;
 							if(snesMenuOptions.frameSkip==0)
 							{
-#ifdef __GIZ__
-	// thanks to Giz's fucked up audio drivers I have to frig with the frameSkip
-	// otherwise the fps gets capped at 48fps
-								if(done==((aim-1)&7))
-								{
-									efps^=1;
-								}
-								else efps=0;
-								
-								if ((done==aim)||(efps>0)) 
+#if defined(__GIZ__)
+								int aim1;
+								int aim2;
+								int aim3;
+								aim1=aim-1;
+								if(aim1<0) aim1+=7;
+								aim2=aim-2;
+								if(aim2<0) aim2+=7;
+								aim3=aim-3;
+								if(aim3<0) aim3+=7;
+								//If we start to get to slow the audio buffer will start
+								//to catch us up.  So we need to skip frames in order to
+								//catch up the real time rendering
+								if(
+									(done==aim) || // we up right up to speed to render frame
+									(done==aim1) || // we are 1 bank behind so still okay
+									(done==aim2) || // we are 2 banks behind so just about ok
+									(done==aim3)  // we are 3 banks behind so getting dodgy
+									)
 								{
 									IPPU.RenderThisFrame=TRUE; // Render last frame
-									Frames++;
+									Frames++;	
 								}
+	
 #endif
-#ifdef __GP2X__
+#if defined(__GP2X__) || defined(__WIZ__)
 								if ((done==aim)) 
 								{
 									IPPU.RenderThisFrame=TRUE; // Render last frame
@@ -1033,7 +1601,7 @@ int main(int argc, char *argv[])
 						}
 						if (done==aim) break; // Up to date now
 					}
-#if defined (__GP2X__)					
+#if defined (__GP2X__) || defined(__WIZ__)					
 					done=aim; // Make sure up to date
 #endif					
 					// need some way to exit menu
@@ -1055,13 +1623,13 @@ int main(int argc, char *argv[])
 				Frames=0;
 				while (1)
 				{
-					Timer=gp2x_timer_read()/frametime;
+					Timer=gp_timer_read()/frametime;
 					if(Timer-tick>frame_limit)
 				    {
 				       fps=Frames;
 				       Frames=0;
 				       tick=Timer;
-				       sprintf(fps_display,"Fps: %d",fps);
+				       sprintf(fps_display,"Fps: %2d",fps);
 				    }
 					else if (Timer<tick) 
 					{
@@ -1112,6 +1680,7 @@ int main(int argc, char *argv[])
 				}
 				enterMenu=0;
 			}
+			
 			if (snesMenuOptions.autoSram)
 			{
 				S9xSaveSRAM();
@@ -1120,6 +1689,18 @@ int main(int argc, char *argv[])
 	}
 	set_gamma(100);
 
+	//deinitScreenShots();
+	destroyTheme();
+
+	free(GFX.SubScreen); 
+	free(GFX.ZBuffer);
+#ifndef __WIZ__ 
+	free(GFX.SubZBuffer);
+#endif
+ 
+#if defined(__WIZ__)
+	if (pOutputScreen) free(pOutputScreen);
+#endif
 #if defined(__GP2X__)
 	InputClose();
 #endif	

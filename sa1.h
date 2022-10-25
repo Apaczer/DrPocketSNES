@@ -31,13 +31,17 @@
  * seek permission of the copyright holders first. Commercial use includes
  * charging money for Snes9x or software derived from Snes9x.
  *
- * The copyright holders request that bug fixes and improvements to the code
+ * The copyright holder:s request that bug fixes and improvements to the code
  * should be forwarded to them so everyone can benefit from the modifications
  * in future versions.
  *
  * Super NES and Super Nintendo Entertainment System are trademarks of
  * Nintendo Co., Limited and its subsidiary companies.
  */
+#ifndef USE_SA1
+#define _sa1_h_
+#endif
+
 #ifndef _sa1_h_
 #define _sa1_h_
 
@@ -82,13 +86,12 @@ struct SSA1 {
 //    long    Cycles;
 //    long    NextEvent;
 //    long    V_Counter;
-    uint8   *Map [MEMMAP_NUM_BLOCKS];
-    uint8   *WriteMap [MEMMAP_NUM_BLOCKS];
     int16   op1;
     int16   op2;
     int     arithmetic_op;
     int64   sum;
     bool8   overflow;
+
     uint8   VirtualBitmapFormat;
     bool8   in_char_dma;
     uint8   variable_bit_pos;
@@ -96,6 +99,10 @@ struct SSA1 {
 
 extern struct SSA1Registers SA1Registers;
 extern struct SSA1 SA1;
+
+extern uint8 *SA1_Map [MEMMAP_NUM_BLOCKS];
+extern uint8 *SA1_WriteMap [MEMMAP_NUM_BLOCKS];
+
 
 #ifdef USE_SA1
 
@@ -116,9 +123,11 @@ extern struct SSA1 SA1;
 
 START_EXTERN_C
 uint8 S9xSA1GetByte (uint32);
-uint16 S9xSA1GetWord (uint32);
+//uint16 S9xSA1GetWord (uint32);
+#define S9xSA1GetWord(address) (S9xSA1GetByte(address) | (S9xSA1GetByte(address+1) << 8))
 void S9xSA1SetByte (uint8, uint32);
-void S9xSA1SetWord (uint16, uint32);
+//void S9xSA1SetWord (uint16, uint32);
+#define S9xSA1SetWord(word, address) S9xSA1SetByte(word, address); S9xSA1SetByte(word >> 8, address+1);
 void S9xSA1SetPCBase (uint32);
 uint8 S9xGetSA1 (uint32);
 void S9xSetSA1 (uint8, uint32);
@@ -173,6 +182,7 @@ STATIC inline void S9xSA1FixCycles ()
 	    SA1.S9xOpcodes = S9xSA1OpcodesM0X0;
     }
 }
+
 
 #endif // USE_SA1
 

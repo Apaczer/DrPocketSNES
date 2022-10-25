@@ -188,7 +188,6 @@ void S9xFixSoundAfterSnapshotLoad ()
 		S9xSetSoundFrequency (i, SoundData.channels[i].hertz);
 		SoundData.channels [i].envxx = SoundData.channels [i].envx << ENVX_SHIFT;
 		SoundData.channels [i].next_sample = 0;
-		SoundData.channels [i].interpolate = 0;
 		SoundData.channels [i].previous [0] = (int32) SoundData.channels [i].previous16 [0];
 		SoundData.channels [i].previous [1] = (int32) SoundData.channels [i].previous16 [1];
     }
@@ -364,7 +363,7 @@ static void MixStereo (int sample_count)
 	Channel *ch = &SoundData.channels[J];
 	unsigned long freq0 = ch->frequency;
 
-	if (ch->state == SOUND_SILENT || !(so.sound_switch & (1 << J)))
+	if (ch->state == SOUND_SILENT)
 	    continue;
 
 //		freq0 = (unsigned long) ((double) freq0 * 0.985);//uncommented by jonathan gevaryahu, as it is necessary for most cards in linux
@@ -383,11 +382,6 @@ static void MixStereo (int sample_count)
 		ch->sample_pointer = SOUND_DECODE_LENGTH - 1;
 
 	    ch->next_sample = ch->block[ch->sample_pointer];
-	    ch->interpolate = 0;
-
-	    if (Settings.InterpolatedSound && freq0 < FIXED_POINT && !mod)
-		ch->interpolate = ((ch->next_sample - ch->sample) * 
-				   (long) freq0) / (long) FIXED_POINT;
 	}
 	VL = (ch->sample * ch-> left_vol_level) / 128;
 	VR = (ch->sample * ch->right_vol_level) / 128;
@@ -593,42 +587,17 @@ static void MixStereo (int sample_count)
 			else
 				ch->next_sample = ch->block [ch->sample_pointer];
 
-			if (ch->type == SOUND_SAMPLE)
-			{
-				if (Settings.InterpolatedSound && freq < FIXED_POINT && !mod)
-				{
-					ch->interpolate = ((ch->next_sample - ch->sample) * 
-							   (long) freq) / (long) FIXED_POINT;
-					ch->sample = (int16) (ch->sample + (((ch->next_sample - ch->sample) * 
-							   (long) (ch->count)) / (long) FIXED_POINT));
-				}		  
-				else
-					ch->interpolate = 0;
-			}
-			else
+			if (ch->type != SOUND_SAMPLE)
 			{
 				for (;VL > 0; VL--)
 					if ((so.noise_gen <<= 1) & 0x80000000L)
 						so.noise_gen ^= 0x0040001L;
 				ch->sample = (so.noise_gen << 17) >> 17;
-				ch->interpolate = 0;
 			}
 
 			VL = (ch->sample * ch-> left_vol_level) / 128;
 			VR = (ch->sample * ch->right_vol_level) / 128;
 		}
-	    else
-	    {
-			if (ch->interpolate)
-			{
-				int32 s = (int32) ch->sample + ch->interpolate;
-				
-				CLIP16(s);
-				ch->sample = (int16) s;
-				VL = (ch->sample * ch-> left_vol_level) / 128;
-				VR = (ch->sample * ch->right_vol_level) / 128;
-			}
-	    }
 
 	    if (pitch_mod & (1 << (J + 1)))
 			wave [I / 2] = ch->sample * ch->envx;
@@ -654,7 +623,7 @@ static void MixMono (int sample_count)
 	Channel *ch = &SoundData.channels[J];
 	unsigned long freq0 = ch->frequency;
 
-	if (ch->state == SOUND_SILENT || !(so.sound_switch & (1 << J)))
+	if (ch->state == SOUND_SILENT)
 	    continue;
 
 //	freq0 = (unsigned long) ((double) freq0 * 0.985);
@@ -672,11 +641,7 @@ static void MixMono (int sample_count)
 	    if (ch->sample_pointer > SOUND_DECODE_LENGTH)
 		ch->sample_pointer = SOUND_DECODE_LENGTH - 1;
 	    ch->next_sample = ch->block[ch->sample_pointer];
-	    ch->interpolate = 0;
 
-	    if (Settings.InterpolatedSound && freq0 < FIXED_POINT && !mod)
-		ch->interpolate = ((ch->next_sample - ch->sample) * 
-				   (long) freq0) / (long) FIXED_POINT;
 	}
 	int32 V = (ch->sample * ch->left_vol_level) / 128;
 
@@ -879,39 +844,15 @@ static void MixMono (int sample_count)
 		else
 		    ch->next_sample = ch->block [ch->sample_pointer];
 
-		if (ch->type == SOUND_SAMPLE)
-		{
-		    if (Settings.InterpolatedSound && freq < FIXED_POINT && !mod)
-		    {
-			ch->interpolate = ((ch->next_sample - ch->sample) * 
-					   (long) freq) / (long) FIXED_POINT;
-			ch->sample = (int16) (ch->sample + (((ch->next_sample - ch->sample) * 
-					   (long) (ch->count)) / (long) FIXED_POINT));
-		    }		  
-		    else
-			ch->interpolate = 0;
-		}
-		else
+		if (ch->type != SOUND_SAMPLE)
 		{
 		    for (;V > 0; V--)
 			if ((so.noise_gen <<= 1) & 0x80000000L)
 			    so.noise_gen ^= 0x0040001L;
 		    ch->sample = (so.noise_gen << 17) >> 17;
-		    ch->interpolate = 0;
 		}
 		V = (ch->sample * ch-> left_vol_level) / 128;
             }
-	    else
-	    {
-		if (ch->interpolate)
-		{
-		    int32 s = (int32) ch->sample + ch->interpolate;
-
-		    CLIP16(s);
-		    ch->sample = (int16) s;
-		    V = (ch->sample * ch-> left_vol_level) / 128;
-		}
-	    }
 
 	    MixBuffer [I] += V;
 		if (ch->echo_buf_ptr)
@@ -996,6 +937,9 @@ void S9xMixSamplesO (signed short *buffer, int sample_count, int sample_offset)
 					register int E = Echo [SoundData.echo_ptr];
 
 					Loop [(Z - 0) & 15] = E;
+
+
+
 					E =  E                    * FilterTaps [0];
 					E += Loop [(Z -  2) & 15] * FilterTaps [1];
 					E += Loop [(Z -  4) & 15] * FilterTaps [2];
@@ -1159,7 +1103,6 @@ void S9xResetSound (bool8 full)
     FilterTaps [7] = 0;
     so.mute_sound = TRUE;
     so.noise_gen = 1;
-    so.sound_switch = 255;
 
     if (full)
     {
@@ -1248,7 +1191,6 @@ bool8 S9xInitSound (void)
 {
     so.playback_rate = 0;
     so.stereo = 0;
-	so.sound_switch = 255;
 
     S9xResetSound (TRUE);
     S9xSetSoundMute (TRUE);

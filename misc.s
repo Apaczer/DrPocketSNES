@@ -174,8 +174,6 @@ mst32_fin:
     tst     r2, #2
     stmneia r0!, {r1,r3}
 
-    ldmfd   sp!, {lr}
-    bx      lr
-
+    ldmfd   sp!, {pc}
 
 

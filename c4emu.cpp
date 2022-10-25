@@ -153,7 +153,7 @@ static void C4ConvOAM(void){
             SprName=srcptr[5];
             SprAttr=srcptr[4] | srcptr[0x06]; // XXX: mask bits?
 
-                uint8 *sprptr=S9xGetMemPointer(READ_3WORD(srcptr+7));
+            uint8 *sprptr=C4GetMemPointer(READ_3WORD(srcptr+7));
                 if(*sprptr!=0){
                     int16 X, Y;
                     for(int SprCnt=*sprptr++; SprCnt>0 && SprCount>0; SprCnt--, sprptr+=4){
@@ -363,7 +363,7 @@ static void C4DrawLine(int32 X1, int32 Y1, int16 Z1,
 
 static void C4DrawWireFrame(void)
 {
-    uint8 *line=S9xGetMemPointer(READ_3WORD(Memory.C4RAM+0x1f80));
+    uint8 *line=C4GetMemPointer(READ_3WORD(Memory.C4RAM+0x1f80));
     uint8 *point1, *point2;
     int16 X1, Y1, Z1;
     int16 X2, Y2, Z2;
@@ -377,12 +377,12 @@ static void C4DrawWireFrame(void)
     for(int i=Memory.C4RAM[0x0295]; i>0; i--, line+=5){
         if(line[0]==0xff && line[1]==0xff){
             uint8 *tmp=line-5;
-            while(line[2]==0xff && line[3]==0xff) tmp-=5;
-            point1=S9xGetMemPointer((Memory.C4RAM[0x1f82]<<16) | (tmp[2]<<8) | tmp[3]);
+            while(tmp[2]==0xff && tmp[3]==0xff) tmp-=5;
+            point1=C4GetMemPointer((Memory.C4RAM[0x1f82]<<16) | (tmp[2]<<8) | tmp[3]);
         } else {
-            point1=S9xGetMemPointer((Memory.C4RAM[0x1f82]<<16) | (line[0]<<8) | line[1]);
+            point1=C4GetMemPointer((Memory.C4RAM[0x1f82]<<16) | (line[0]<<8) | line[1]);
         }
-        point2=S9xGetMemPointer((Memory.C4RAM[0x1f82]<<16) | (line[2]<<8) | line[3]);
+        point2=C4GetMemPointer((Memory.C4RAM[0x1f82]<<16) | (line[2]<<8) | line[3]);
 
         X1=(point1[0]<<8) | point1[1];
         Y1=(point1[2]<<8) | point1[3];
@@ -703,7 +703,7 @@ void S9xSetC4 (uint8 byte, uint16 Address)
 #endif
                 C41FXVal=READ_WORD(Memory.C4RAM+0x1f80);
                 C41FYVal=READ_WORD(Memory.C4RAM+0x1f83);
-                C41FDist=(int16)sqrt((double)C41FXVal*C41FXVal + (double)C41FYVal*C41FYVal);
+                C41FDist=(int16)sqrtf((float)C41FXVal*C41FXVal + (float)C41FYVal*C41FYVal);
                 WRITE_WORD(Memory.C4RAM+0x1f80, C41FDist);
                 break;
 
@@ -867,7 +867,7 @@ void S9xSetC4 (uint8 byte, uint16 Address)
         if(READ_WORD(Memory.C4RAM+0x1f45) < 0x6000 || (READ_WORD(Memory.C4RAM+0x1f45) + READ_WORD(Memory.C4RAM+0x1f43)) > 0x6c00) printf("C4 load: Dest unusual! It's %04x\n", READ_WORD(Memory.C4RAM+0x1f45));
 #endif
         memmove(Memory.C4RAM+(READ_WORD(Memory.C4RAM+0x1f45)&0x1fff), 
-                S9xGetMemPointer(READ_3WORD(Memory.C4RAM+0x1f40)),
+                C4GetMemPointer(READ_3WORD(Memory.C4RAM+0x1f40)),
                 READ_WORD(Memory.C4RAM+0x1f43));
     }
 }

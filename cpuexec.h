@@ -58,14 +58,12 @@ struct SOpcodes {
 
 struct SICPU
 {
-/*
     uint8  *Speed;
     struct SOpcodes *S9xOpcodes;
     uint8  _Carry;
     uint8  _Zero;
     uint8  _Negative;
     uint8  _Overflow;
-*/
 	bool8  CPUExecuting;
     uint32 ShiftedPB;
     uint32 ShiftedDB;
@@ -104,7 +102,6 @@ STATIC inline void CLEAR_IRQ_SOURCE (uint32 M)
 	CPU.Flags &= ~IRQ_PENDING_FLAG;
 }
 
-#if 0
 STATIC inline void S9xUnpackStatus()
 {
     ICPU._Zero = (Registers.PL & Zero) == 0;
@@ -121,7 +118,7 @@ STATIC inline void S9xPackStatus()
 }
 
 STATIC inline void S9xFixCycles ()
-{
+{	
     if (CheckEmulation ())
     {
 #ifndef VAR_CYCLES
@@ -165,37 +162,74 @@ STATIC inline void S9xFixCycles ()
 	}
     }
 }
-#endif
 
-STATIC inline void S9xReschedule ()
-{
-    uint8 which;
-    long max;
-    
-    if (CPU.WhichEvent == HBLANK_START_EVENT ||
-	CPU.WhichEvent == HTIMER_AFTER_EVENT)
-    {
-	which = HBLANK_END_EVENT;
-	max = Settings.H_Max;
-    }
-    else
-    {
-	which = HBLANK_START_EVENT;
-	max = Settings.HBlankStart;
-    }
 
-    if (PPU.HTimerEnabled &&
-        (long) PPU.HTimerPosition < max &&
-	(long) PPU.HTimerPosition > CPU.NextEvent &&
-	(!PPU.VTimerEnabled ||
-	 (PPU.VTimerEnabled && CPU.V_Counter == PPU.IRQVBeamPos)))
-    {
-	which = (long) PPU.HTimerPosition < Settings.HBlankStart ?
-			HTIMER_BEFORE_EVENT : HTIMER_AFTER_EVENT;
-	max = PPU.HTimerPosition;
-    }
-    CPU.NextEvent = max;
-    CPU.WhichEvent = which;
+#define S9xReschedule() { \
+	uint8 which; \
+  long max; \
+  if (CPU.WhichEvent == HBLANK_START_EVENT || CPU.WhichEvent == HTIMER_AFTER_EVENT) { \
+		which = HBLANK_END_EVENT; \
+		max = Settings.H_Max; \
+  } else { \
+		which = HBLANK_START_EVENT; \
+		max = Settings.HBlankStart; \
+  } \
+ \
+  if (PPU.HTimerEnabled && (long) PPU.HTimerPosition < max &&	(long) PPU.HTimerPosition > CPU.NextEvent && \
+		(!PPU.VTimerEnabled || (PPU.VTimerEnabled && CPU.V_Counter == PPU.IRQVBeamPos))) { \
+		which = (long) PPU.HTimerPosition < Settings.HBlankStart ? HTIMER_BEFORE_EVENT : HTIMER_AFTER_EVENT; \
+		max = PPU.HTimerPosition; \
+  } \
+  CPU.NextEvent = max; \
+  CPU.WhichEvent = which; \
 }
+
+/*
+extern "C" {
+void asm_APU_EXECUTE(int Mode);
+void asm_APU_EXECUTE2(void);
+}*/
+
+#define asm_APU_EXECUTE(MODE)\
+{\
+   if (CPU.APU_APUExecuting == MODE) {\
+        if (Settings.asmspc700) {\
+		if(CPU.APU_Cycles < CPU.Cycles) {\
+			int cycles = CPU.Cycles - CPU.APU_Cycles;\
+			CPU.APU_Cycles += cycles - spc700_execute(cycles);\
+		}\
+	}\
+	else\
+	{\
+		while (CPU.APU_Cycles <= CPU.Cycles)\
+		{\
+			CPU.APU_Cycles += S9xAPUCycles [*IAPU.PC];\
+			(*S9xApuOpcodes[*IAPU.PC]) ();\
+		}\
+	}\
+  }\
+}
+
+
+#define asm_APU_EXECUTE2() \
+{\
+    if  (CPU.APU_APUExecuting == 1) {\
+        if (Settings.asmspc700) {\
+		if (CPU.APU_Cycles < CPU.NextEvent) {\
+			int cycles = CPU.NextEvent - CPU.APU_Cycles;\
+			CPU.APU_Cycles += cycles - spc700_execute(cycles);\
+		}\
+	}\
+	else\
+	{\
+		do\
+		{\
+			CPU.APU_Cycles += S9xAPUCycles [*IAPU.PC];\
+			(*S9xApuOpcodes[*IAPU.PC]) ();\
+		} while (CPU.APU_Cycles < CPU.NextEvent);\
+	}\
+  }\
+}
+
 
 #endif

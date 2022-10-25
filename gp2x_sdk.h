@@ -25,6 +25,7 @@ extern "C" {
 #define INP_BUTTON_VOL_DOWN			(22)
 #define INP_BUTTON_STICK_PUSH		(27)
 
+void gp_setClipping(int x1, int y1, int x2, int y2);
 void gp_drawString (int x,int y,int len,char *buffer,unsigned short color,void *framebuffer);
 void gp_clearFramebuffer16(unsigned short *framebuffer, unsigned short pal);
 void gp_clearFramebuffer8(unsigned char *framebuffer, unsigned char pal);
@@ -38,10 +39,10 @@ void gp_stopSound(void);
 void gp_Reset(void);
 void gp2x_enableIRQ(void);
 void gp2x_disableIRQ(void);
-void gp2x_sound_volume(int l, int r);
-unsigned long gp2x_timer_read(void);
+void gp_sound_volume(int l, int r);
+unsigned long gp_timer_read(void);
 unsigned int gp_getButton(unsigned char enable_diagnals);
-void gp2x_video_RGB_setscaling(int W, int H);
+void gp_video_RGB_setscaling(int W, int H);
 void gp2x_sound_play_bank(int bank);
 void gp2x_sound_sync(void);
 void set_gamma(int g100);

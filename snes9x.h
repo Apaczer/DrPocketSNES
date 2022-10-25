@@ -105,6 +105,16 @@
 #define SPC700_TO_65C816_RATIO	2
 #define AUTO_FRAMERATE		200
 
+#define PPU_IGNORE_FIXEDCOLCHANGES 			(1<<0)
+#define PPU_IGNORE_WINDOW					(1<<1)
+#define PPU_IGNORE_ADDSUB					(1<<2)
+#define PPU_IGNORE_PALWRITE				 	(1<<3)
+#define GFX_IGNORE_OBJ				 		(1<<4)
+#define GFX_IGNORE_BG0				 		(1<<5)
+#define GFX_IGNORE_BG1				 		(1<<6)
+#define GFX_IGNORE_BG2				 		(1<<7)
+#define GFX_IGNORE_BG3				 		(1<<8)
+
 // NTSC master clock signal 21.47727MHz
 // PPU: master clock / 4
 // 1 / PPU clock * 342 -> 63.695us
@@ -122,11 +132,14 @@
 
 //#define SNES_CLOCK_LEN (1.0 / SNES_CLOCK_SPEED)
 
+//#define SNES_APUTIMER2_CYCLEx10000 ((uint32) 3355824)
+
 #ifdef VAR_CYCLES
 //#define SNES_CYCLES_PER_SCANLINE ((uint32) ((SNES_SCANLINE_TIME / SNES_CLOCK_LEN) * 6 + 0.5))
 #define SNES_CYCLES_PER_SCANLINE ((uint32)(228*6))
 #else
-#define SNES_CYCLES_PER_SCANLINE ((uint32) (SNES_SCANLINE_TIME / SNES_CLOCK_LEN + 0.5))
+//#define SNES_CYCLES_PER_SCANLINE ((uint32) (SNES_SCANLINE_TIME / SNES_CLOCK_LEN + 0.5))
+#define SNES_CYCLES_PER_SCANLINE ((uint32)(228))
 #endif
 
 #define SNES_TR_MASK	    (1 << 4)
@@ -189,7 +202,7 @@ struct SCPUState{
     bool8   IRQActive;				//6
     bool8   WaitingForInterrupt;	//7
     struct SRegisters Regs;			//8
-		//uint8  PB;				//8
+		//uint8  PB;				//8		--> status
 		//uint8  DB;				//9
 		//pair   P;					//10
 		//pair   A;					//12
@@ -204,7 +217,7 @@ struct SCPUState{
     uint8   *PCAtOpcodeStart;		//36
     uint8   *WaitAddress;			//40
     uint32  WaitCounter;			//44
-    int32   NextEvent;				//48
+    volatile int32   NextEvent;				//48
     int32   V_Counter;				//52
     int32   MemSpeed;				//56
     int32   MemSpeedx2;				//60
@@ -224,16 +237,19 @@ struct SCPUState{
     
     uint8*	Memory_Map;				//96
     uint8*	Memory_WriteMap;		//100
-    uint8*	Memory_MemorySpeed;		//104
+    uint32*	Memory_MemorySpeed;		//104
     uint8*	Memory_BlockIsRAM;		//108
     uint8*	Memory_SRAM;			//112
     uint8*	Memory_BWRAM;			//116
-    uint16	Memory_SRAMMask;		//120
-    bool8	APU_APUExecuting;		//122
-    bool8	_ARM_asm_padding2;		//123
-    uint32	_PALMSOS_R9;			//124
-    uint32	_PALMSOS_R10;    		//128
-  	int32	APU_Cycles;				//132 notaz
+    uint32	Memory_SRAMMask;		//120
+    bool32	APU_APUExecuting;		//124
+    bool32	_ARM_asm_padding2;		//128
+    uint32	_PALMSOS_R9;			//132
+    uint32	_PALMSOS_R10;    		//136
+  	volatile int32	APU_Cycles;				//140 notaz
+	void *DSPGet;
+	void *DSPSet;
+	int32 rstatus; 
 };
 
 
@@ -247,6 +263,7 @@ struct SSettings{
     // CPU options
     bool8  APUEnabled;
     bool8  Shutdown;
+
     uint8  SoundSkipMethod;
     long   H_Max;
     long   HBlankStart;
@@ -358,6 +375,7 @@ struct SSettings{
     bool8  TurboMode;
     uint32 TurboSkipFrames;
     uint32 AutoMaxSkipFrames;
+	uint32 os9x_hack;
     
 // Fixes for individual games
     uint32 StrikeGunnerOffsetHack;
@@ -371,8 +389,8 @@ struct SSettings{
     uint8  APURAMInitialValue;
     bool8  SDD1Pack;
     
-	// notaz
-	uint32 GfxLayerMask;
+	bool8 asmspc700;
+	bool8 SpeedHacks;
 #ifdef __WIN32__
     int    SoundDriver;
 #endif
@@ -389,6 +407,9 @@ struct SSNESGameFixes
     uint8 TouhaidenControllerFix;
     uint8 SoundEnvelopeHeightReading2;
     uint8 SRAMInitialValue;
+    uint8 Uniracers;
+    uint8 Flintstones;
+    uint8 Mode7Hack;
 };
 
 START_EXTERN_C

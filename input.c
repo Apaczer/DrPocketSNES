@@ -124,6 +124,28 @@ int InputUpdate(int EnableDiagnals)
 			(1<<INP_BUTTON_STICK_PUSH);
   key |= joy_getButton(0);
 #endif
+
+#if defined(__WIZ__)
+  key=gp_getButton(EnableDiagnals);
+  key&=	(1<<INP_BUTTON_UP)|
+			(1<<INP_BUTTON_LEFT)|
+			(1<<INP_BUTTON_DOWN)|
+			(1<<INP_BUTTON_RIGHT)|
+#ifdef __CAANOO__
+			(1<<INP_BUTTON_HOME)|
+#endif
+			(1<<INP_BUTTON_START)|
+			(1<<INP_BUTTON_SELECT)|
+			(1<<INP_BUTTON_L)|
+			(1<<INP_BUTTON_R)|
+			(1<<INP_BUTTON_A)|
+			(1<<INP_BUTTON_B)|
+			(1<<INP_BUTTON_X)|
+			(1<<INP_BUTTON_Y)|
+			(1<<INP_BUTTON_VOL_UP)|
+			(1<<INP_BUTTON_VOL_DOWN);
+#endif
+
   // Find out how long key was pressed for
   for (i=0;i<32;i++)
   {

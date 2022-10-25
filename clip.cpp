@@ -71,12 +71,15 @@ static int IntCompare (const void *d1, const void *d2)
 static int _cdecl IntCompare (const void *d1, const void *d2)
 #endif
 {
+/*
     if (*(uint32 *) d1 > *(uint32 *) d2)
 	return (1);
     else
     if (*(uint32 *) d1 < *(uint32 *) d2)
 	return (-1);
     return (0);
+*/
+    return (*(uint32 *) d1 - *(uint32 *) d2);
 }
 
 #ifndef _SNESPPC
@@ -85,90 +88,37 @@ static int BandCompare (const void *d1, const void *d2)
 static int _cdecl BandCompare (const void *d1, const void *d2)
 #endif
 {
+/*
     if (((struct Band *) d1)->Left > ((struct Band *) d2)->Left)
 	return (1);
     else
     if (((struct Band *) d1)->Left < ((struct Band *) d2)->Left)
 	return (-1);
     return (0);
+*/
+    return (((struct Band *) d1)->Left - ((struct Band *) d2)->Left);
 }
 
-void ComputeClipWindows ()
-{
-    struct ClipData *pClip = &IPPU.Clip [0];
-
-    // Loop around the main screen then the sub-screen.
-    for (int c = 0; c < 2; c++, pClip++)
-    {
-        // Loop around the colour window then a clip window for each of the
-        // background layers.
-	for (int w = 5; w >= 0; w--)
-	{
+void ComputeClipWindow(bool8_32 invert, int w, int wok, struct ClipData *pClip) {
 	    pClip->Count[w] = 0;
 
-	    if (w == 5) // The colour window...
-	    {
-		if (c == 0) // ... on the main screen
-		{
-		    if ((Memory.FillRAM [0x2130] & 0xc0) == 0xc0)
-		    {
-			// The whole of the main screen is switched off,
-			// completely clip everything.
-			for (int i = 0; i < 6; i++)
-			{
-			    IPPU.Clip [c].Count [i] = 1;
-			    IPPU.Clip [c].Left [0][i] = 1;
-			    IPPU.Clip [c].Right [0][i] = 0;
-			}
-			continue;
-		    }
-		    else
-		    if ((Memory.FillRAM [0x2130] & 0xc0) == 0x00)
-			continue;
-		}
-		else
-		{
-		    // .. colour window on the sub-screen.
-		    if ((Memory.FillRAM [0x2130] & 0x30) == 0x30)
-		    {
-			// The sub-screen is switched off, completely
-			// clip everything.
-			for (int i = 0; i < 6; i++)
-			{
-			    IPPU.Clip [1].Count [i] = 1;
-			    IPPU.Clip [1].Left [0][i] = 1;
-			    IPPU.Clip [1].Right [0][i] = 0;
-			}
-			return;
-		    }
-		    else
-		    if ((Memory.FillRAM [0x2130] & 0x30) == 0x00)
-			continue;
-		}
-	    }
 	    if (!Settings.DisableGraphicWindows)
 	    {
-		if (w == 5 || pClip->Count [5] ||
-		    (Memory.FillRAM [0x212c + c] & 
-		     Memory.FillRAM [0x212e + c] & (1 << w)))
+		if (pClip->Count [5] || wok)
 		{
 		    struct Band Win1[3];
 		    struct Band Win2[3];
 		    uint32 Window1Enabled = 0;
 		    uint32 Window2Enabled = 0;
-		    bool8_32 invert = (w == 5 && 
-				    ((c == 1 && (Memory.FillRAM [0x2130] & 0x30) == 0x10) ||
-				     (c == 0 && (Memory.FillRAM [0x2130] & 0xc0) == 0x40)));
-
-		    if (w == 5 ||
-			(Memory.FillRAM [0x212c + c] & Memory.FillRAM [0x212e + c] & (1 << w)))
+		    if (wok)
 		    {
 			if (PPU.ClipWindow1Enable [w])
 			{
 			    if (!PPU.ClipWindow1Inside [w])
 			    {
-				Win1[Window1Enabled].Left = PPU.Window1Left;
-				Win1[Window1Enabled++].Right = PPU.Window1Right + 1;
+				Win1[0].Left = PPU.Window1Left;
+				Win1[0].Right = PPU.Window1Right + 1;
+				Window1Enabled = 1;
 			    }
 			    else
 			    {
@@ -176,8 +126,9 @@ void ComputeClipWindows ()
 				{
 				    if (PPU.Window1Left > 0)
 				    {
-					Win1[Window1Enabled].Left = 0;
-					Win1[Window1Enabled++].Right = PPU.Window1Left;
+					Win1[0].Left = 0;
+					Win1[0].Right = PPU.Window1Left;
+					Window1Enabled = 1;
 				    }
 				    if (PPU.Window1Right < 255)
 				    {
@@ -186,16 +137,18 @@ void ComputeClipWindows ()
 				    }
 				    if (Window1Enabled == 0)
 				    {
-					Win1[Window1Enabled].Left = 1;
-					Win1[Window1Enabled++].Right = 0;
+					Win1[0].Left = 1;
+					Win1[0].Right = 0;
+					Window1Enabled = 1;
 				    }
 				}
 				else
 				{
 				    // 'outside' a window with no range - 
 				    // appears to be the whole screen.
-				    Win1[Window1Enabled].Left = 0;
-				    Win1[Window1Enabled++].Right = 256;
+				    Win1[0].Left = 0;
+				    Win1[0].Right = 256;
+				    Window1Enabled = 1;
 				}
 			    }
 			}
@@ -203,8 +156,9 @@ void ComputeClipWindows ()
 			{
 			    if (!PPU.ClipWindow2Inside [w])
 			    {
-				Win2[Window2Enabled].Left = PPU.Window2Left;
-				Win2[Window2Enabled++].Right = PPU.Window2Right + 1;
+				Win2[0].Left = PPU.Window2Left;
+				Win2[0].Right = PPU.Window2Right + 1;
+				Window2Enabled = 1;
 			    }
 			    else
 			    {
@@ -212,8 +166,9 @@ void ComputeClipWindows ()
 				{
 				    if (PPU.Window2Left > 0)
 				    {
-					Win2[Window2Enabled].Left = 0;
-					Win2[Window2Enabled++].Right = PPU.Window2Left;
+					Win2[0].Left = 0;
+					Win2[0].Right = PPU.Window2Left;
+					Window2Enabled = 1;
 				    }
 				    if (PPU.Window2Right < 255)
 				    {
@@ -222,14 +177,16 @@ void ComputeClipWindows ()
 				    }
 				    if (Window2Enabled == 0)
 				    {
-					Win2[Window2Enabled].Left = 1;
-					Win2[Window2Enabled++].Right = 0;
+					Win2[0].Left = 1;
+					Win2[0].Right = 0;
+					Window2Enabled = 1;
 				    }
 				}
 				else
 				{
-				    Win2[Window2Enabled].Left = 0;
-				    Win2[Window2Enabled++].Right = 256;
+				    Win2[0].Left = 0;
+				    Win2[0].Right = 256;
+				    Window2Enabled = 1;
 				}
 			    }
 			}
@@ -591,8 +548,9 @@ void ComputeClipWindows ()
 				    {
 					if (Win1[0].Left > 0)
 					{
-					    pClip->Left[j][w] = 0;
-					    pClip->Right[j++][w] = Win1[0].Left;
+					    pClip->Left[0][w] = 0;
+					    pClip->Right[0][w] = Win1[0].Left;
+					    j = 1;
 					}
 					if (Win1[0].Right < 256)
 					{
@@ -601,20 +559,23 @@ void ComputeClipWindows ()
 					}
 					if (j == 0)
 					{
-					    pClip->Left[j][w] = 1;
-					    pClip->Right[j++][w] = 0;
+					    pClip->Left[0][w] = 1;
+					    pClip->Right[0][w] = 0;
+					    j = 1;
 					}
 				    }
 				    else
 				    {
-					pClip->Left[j][w] = 0;
-					pClip->Right[j++][w] = 256;
+					pClip->Left[0][w] = 0;
+					pClip->Right[0][w] = 256;
+					j = 1;
 				    }
 				}
 				else
 				{
-				    pClip->Left [j][w] = Win1[0].Right;
-				    pClip->Right[j++][w] = Win1[1].Left;
+				    pClip->Left [0][w] = Win1[0].Right;
+				    pClip->Right[0][w] = Win1[1].Left;
+				    j = 1;
 				}
 				pClip->Count [w] = j;
 			    }
@@ -640,8 +601,9 @@ void ComputeClipWindows ()
 				    {
 					if (Win2[0].Left > 0)
 					{
-					    pClip->Left[j][w] = 0;
-					    pClip->Right[j++][w] = Win2[0].Left;
+					    pClip->Left[0][w] = 0;
+					    pClip->Right[0][w] = Win2[0].Left;
+					    j = 1;
 					}
 					if (Win2[0].Right < 256)
 					{
@@ -650,20 +612,23 @@ void ComputeClipWindows ()
 					}
 					if (j == 0)
 					{
-					    pClip->Left[j][w] = 1;
-					    pClip->Right[j++][w] = 0;
+					    pClip->Left[0][w] = 1;
+					    pClip->Right[0][w] = 0;
+					    j = 1;
 					}
 				    }
 				    else
 				    {
-					pClip->Left[j][w] = 0;
-					pClip->Right[j++][w] = 256;
+					pClip->Left[0][w] = 0;
+					pClip->Right[0][w] = 256;
+					j = 1;
 				    }
 				}
 				else
 				{
-				    pClip->Left [j][w] = Win2[0].Right;
-				    pClip->Right[j++][w] = Win2[1].Left + 1;
+				    pClip->Left [0][w] = Win2[0].Right;
+				    pClip->Right[0][w] = Win2[1].Left + 1;
+				    j = 1;
 				}
 				pClip->Count [w] = j;
 			    }
@@ -679,17 +644,17 @@ void ComputeClipWindows ()
 			}
 		    }
 
-		    if (w != 5)
+		    if ((w != 5) && (pClip->Count [5]))
 		    {
-			if (pClip->Count [5])
-			{
+			//if 
+			//{
 			    // Colour window enabled. Set the
 			    // clip windows for all remaining backgrounds to be
 			    // the same as the colour window.
 			    if (pClip->Count [w] == 0)
 			    {
 				pClip->Count [w] = pClip->Count [5];
-				for (uint32 i = 0; i < pClip->Count [w]; i++)
+				for (int i = pClip->Count[w]-1; i >= 0 ; i--)
 				{
 				    pClip->Left [i][w] = pClip->Left [i][5];
 				    pClip->Right [i][w] = pClip->Right [i][5];
@@ -699,10 +664,12 @@ void ComputeClipWindows ()
 			    {
 				// Intersect the colour window with the bg's
 				// own clip window.
-					for (uint32 i = 0; i < pClip->Count [w]; i++)
+					int i, j;
+					//for (i = 0; i < pClip->Count [w]; i++)
+					for (i = pClip->Count [w] - 1; i >= 0 ; i--)
 					{
-						uint32 j;
-						for (j = 0; j < pClip->Count [5]; j++)
+						//for (j = 0; j < pClip->Count [5]; j++)
+						for (j = pClip->Count [5] - 1; j >= 0 ; j--)
 						{
 							if((pClip->Left[i][w] >= pClip->Left[j][5] && pClip->Left[i][w] < pClip->Right[j][5]) || (pClip->Left[j][5] >= pClip->Left[i][w] && pClip->Left[j][5] < pClip->Right[i][w])){
 								// Found an intersection!
@@ -718,10 +685,55 @@ Clip_ok:
 						j=0; // dummy statement
 					}
 			    }
-			}
+			//}
 		    }
 		} // if (w == 5 | ...
 	    } // if (!Settings.DisableGraphicWindows)
-	} // for (int w...
-    } // for (int c...
+}
+
+void ComputeClipWindows ()
+{
+    // Main screen
+    // - Colour window
+    if ((GFX.r2130_s & 0xc0) == 0xc0) {
+	// The whole of the main screen is switched off,
+	// completely clip everything.
+	for (int i = 0; i < 6; i++) {
+	    IPPU.Clip [0].Count [i] = 1;
+	    IPPU.Clip [0].Left [0][i] = 1;
+	    IPPU.Clip [0].Right [0][i] = 0;
+	}
+    }
+    else if (GFX.r2130_s & 0xc0) ComputeClipWindow(((GFX.r2130_s & 0xc0) == 0x40), 5, 1, &IPPU.Clip [0]);
+    else IPPU.Clip[0].Count[5] = 0;
+    // - Objs
+    ComputeClipWindow(FALSE, 4, (GFX.r212c_s & GFX.r212e_s & (1 << 4)), &IPPU.Clip [0]);
+    // - Backgrounds
+    ComputeClipWindow(FALSE, 3, (GFX.r212c_s & GFX.r212e_s & (1 << 3)), &IPPU.Clip [0]);
+    ComputeClipWindow(FALSE, 2, (GFX.r212c_s & GFX.r212e_s & (1 << 2)), &IPPU.Clip [0]);
+    ComputeClipWindow(FALSE, 1, (GFX.r212c_s & GFX.r212e_s & (1 << 1)), &IPPU.Clip [0]);
+    ComputeClipWindow(FALSE, 0, (GFX.r212c_s & GFX.r212e_s & (1 << 0)), &IPPU.Clip [0]);
+
+    // Sub screen
+    // - Colour window
+    if ((GFX.r2130_s & 0x30) == 0x30) {
+	// The sub-screen is switched off, completely
+	// clip everything.
+	for (int i = 0; i < 6; i++) {
+	    IPPU.Clip [1].Count [i] = 1;
+	    IPPU.Clip [1].Left [0][i] = 1;
+	    IPPU.Clip [1].Right [0][i] = 0;
+	}
+    }
+    else if (GFX.r2130_s & 0x30) ComputeClipWindow(((GFX.r2130_s & 0x30) == 0x10), 5, 1, &IPPU.Clip [1]);
+    else IPPU.Clip[1].Count[5] = 0;
+    // - Objs 
+    ComputeClipWindow(FALSE, 4, (GFX.r212d_s & GFX.r212f_s & (1 << 4)), &IPPU.Clip [1]);
+    // - Backgrounds
+    ComputeClipWindow(FALSE, 3, (GFX.r212d_s & GFX.r212f_s & (1 << 3)), &IPPU.Clip [1]);
+    ComputeClipWindow(FALSE, 2, (GFX.r212d_s & GFX.r212f_s & (1 << 2)), &IPPU.Clip [1]);
+    ComputeClipWindow(FALSE, 1, (GFX.r212d_s & GFX.r212f_s & (1 << 1)), &IPPU.Clip [1]);
+    ComputeClipWindow(FALSE, 0, (GFX.r212d_s & GFX.r212f_s & (1 << 0)), &IPPU.Clip [1]);
+
+    PPU.RecomputeClipWindows = FALSE;
 }

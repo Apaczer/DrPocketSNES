@@ -132,7 +132,9 @@ typedef short			int16_32;
 #define ALIGN_BY_ONE  __attribute__ ((aligned (1), packed))
 #define LSB_FIRST
 #undef  FAST_LSB_WORD_ACCESS
-#define ASM_SPC700
+#ifdef ASMCPU
+	#define ASM_SPC700
+#endif
 
 EXTERN_C void S9xGenerateSound ();
 
@@ -157,7 +159,9 @@ void _splitpath (const char *path, char *drive, char *dir, char *fname,
 
 #endif //  _SNESPPC
 
-#ifdef __GP2X__
+#if defined(__GP2X__) || defined(__WIZ__)
+
+#define	ZDELTA	0x13000
 
 //Title
 #define TITLE "Snes9x"
@@ -172,6 +176,7 @@ void _splitpath (const char *path, char *drive, char *dir, char *fname,
 typedef unsigned char	bool8;
 typedef unsigned char	uint8;
 typedef unsigned short	uint16;
+typedef unsigned int bool32;
 typedef unsigned int	uint32;
 typedef signed char		int8;
 typedef short			int16;
@@ -192,7 +197,6 @@ typedef unsigned char	uint8_32;
 typedef unsigned short	uint16_32;
 typedef signed char		int8_32;
 typedef short			int16_32;
-
 
 //Defines for Extern C
 #define EXTERN_C extern
@@ -248,11 +252,6 @@ void _splitpath (const char *path, char *drive, char *dir, char *fname,
 #ifdef INLINE
 #undef INLINE
 #define INLINE inline
-#endif
-
-#ifdef inline
-#undef inline
-#define inline inline
 #endif
 
 #endif //  _SNESPPC
