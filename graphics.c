@@ -129,7 +129,7 @@ void gBlendBitmap16(unsigned short *screen, int sx, int sy, gBITMAP *img, unsign
 	sw = iw;
 
 	ijmp = (img->w - iw) * (img->bpp >> 3);
-	iaddr = &img->data[(iy * img->w + ix) * 4 + 0];
+	iaddr = &img->data[(iy * img->w + ix) * 4];
 	sjmp = SCREEN_WIDTH - iw;
 	screen = &screen[sy * SCREEN_WIDTH + sx];
 

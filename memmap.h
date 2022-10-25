@@ -43,6 +43,16 @@
 
 #include "snes9x.h"
 
+#define MS_SHIFT	2
+#define REPACK_MS(i) \
+	MemorySpeed[i] = ((MemorySpeed[i] << MS_SHIFT) | (BlockIsRAM[i] ? 1:0))
+#define REPACK_BIRAM(i) \
+	MemorySpeed[i] = ((MemorySpeed[i] & (0xffffffff << MS_SHIFT)) | (BlockIsRAM[i] ? 1:0))  
+#define PACK_MS(i, b) \
+	MemorySpeed[i] = (((b) << MS_SHIFT) | (BlockIsRAM[i] ? 1:0)) 
+#define PACK_BIRAM(i, b) \
+	MemorySpeed[i] = ((MemorySpeed[i] & (0xffffffff << MS_SHIFT)) | (b))  
+
 #ifdef FAST_LSB_WORD_ACCESS
 #define READ_WORD(s) (*(uint16 *) (s))
 #define READ_DWORD(s) (*(uint32 *) (s))

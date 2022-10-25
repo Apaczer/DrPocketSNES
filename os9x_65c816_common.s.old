@@ -77,7 +77,6 @@ reg_cpu_var .req R14
 
 .equ MEMSPEED_MASK, (0xF0000)
 .equ MEMSPEED_SHIFT, 16
-.equ MS_SHIFT, 2
 
 /****************************************************************
 	MACROS

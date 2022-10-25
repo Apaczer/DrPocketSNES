@@ -25,11 +25,11 @@
 			"7:\n" \
 			"	ldrb	r9, [%[bp]], #1			\n"\
 			"	add	%[depth], %[depth], #1		\n"\
-			"	movs	r9, r9, lsl #2			\n"\
+			"	cmp	r9, #0				\n"\
 			"	beq	3f				\n"\
 										\
 			"	ldrb	r8, [%[subdepth], %[depth]]	\n"\
-			"	ldr	r9, [%[colors], r9]		\n"\
+			"	ldr	r9, [%[colors], r9, lsl #2]	\n"\
 			"	strb	%[gfx_z2], [%[depth], #(-1)]	\n"\
 										\
 			"	cmp	r8, #1				\n"\
@@ -50,11 +50,11 @@
 			"7:\n" \
 			"	ldrb	r9, [%[bp]], #-1		\n"\
 			"	add	%[depth], %[depth], #1		\n"\
-			"	movs	r9, r9, lsl #2			\n"\
+			"	movs	r9, #0				\n"\
 			"	beq	3f				\n"\
 										\
 			"	ldrb	r8, [%[subdepth], %[depth]]	\n"\
-			"	ldr	r9, [%[colors], r9]		\n"\
+			"	ldr	r9, [%[colors], r9, lsl #2]	\n"\
 			"	strb	%[gfx_z2], [%[depth], #(-1)]	\n"\
 										\
 			"	cmp	r8, #1				\n"\
@@ -201,11 +201,11 @@ DEC_DRAWNOZ(ROPNAME)
 			"	ldrhib	r9, [%[bp]]		\n"\
 			"	bls	3f				\n"\
 										\
-			"	movs	r9, r9, lsl #2			\n"\
+			"	cmp	r9, #0				\n"\
 			"	beq	3f				\n"\
 										\
 			"	ldrb	r8, [%[subdepth], %[depth]]	\n"\
-			"	ldr	r9, [%[colors], r9]		\n"\
+			"	ldr	r9, [%[colors], r9, lsl #2]	\n"\
 			"	strb	%[gfx_z2], [%[depth], #(-1)]	\n"\
 										\
 			"	cmp	r8, #1				\n"\
@@ -234,11 +234,11 @@ DEC_DRAWNOZ(ROPNAME)
 			"	ldrhib	r9, [%[bp]]			\n"\
 			"	bls	3f				\n"\
 										\
-			"	movs	r9, r9, lsl #2			\n"\
+			"	cmp	r9, #0				\n"\
 			"	beq	3f				\n"\
 										\
 			"	ldrb	r8, [%[subdepth], %[depth]]	\n"\
-			"	ldr	r9, [%[colors], r9]		\n"\
+			"	ldr	r9, [%[colors], r9, lsl #2]	\n"\
 			"	strb	%[gfx_z2], [%[depth], #(-1)]	\n"\
 										\
 			"	cmp	r8, #1				\n"\

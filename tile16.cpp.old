@@ -376,13 +376,13 @@ if (Tile & V_FLIP){
 #define FN(p)  \
 			"	ldrb	r1, [%[bp], #" #p "]		\n"\
 			"	ldrb	r0, [%[bp], #(" #p " + 1)]	\n"\
-			"	cmp	r1, #0				\n"\
-			"	ldrne	r1, [%[colors], r1, lsl #2]	\n"\
+			"	movs	r1, r1, lsl #2			\n"\
+			"	ldrne	r1, [%[colors], r1]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #" #p "]	\n"\
 			"	strneh	r1, [%[screen], #(" #p " * 2)]	\n"\
 			"3:						\n"\
-			"	cmp	r1, #0				\n"\
-			"	ldrne	r1, [%[colors], r1, lsl #2]	\n"\
+			"	movs	r1, r0, lsl #2			\n"\
+			"	ldrne	r1, [%[colors], r1]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #(" #p " + 1)]	\n"\
 			"	strneh	r1, [%[screen], #((" #p " + 1) * 2)]	\n"\
 			"3:						\n"
@@ -414,13 +414,13 @@ if (Tile & V_FLIP){
 #define FN1(p)  \
 			"	ldrb	r1, [%[bp], #( 7 - " #p ")]	\n"\
 			"	ldrb	r0, [%[bp], #(7 - " #p " - 1)]	\n"\
-			"	cmp	r1, #0				\n"\
-			"	ldrne	r1, [%[colors], r1, lsl #2]	\n"\
+			"	movs	r1, r1, lsl #2			\n"\
+			"	ldrne	r1, [%[colors], r1]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #" #p "]	\n"\
 			"	strneh	r1, [%[screen], #(" #p " * 2)]	\n"\
 			"3:						\n"\
-			"	cmp	r1, #0				\n"\
-			"	ldrne	r1, [%[colors], r1, lsl #2]	\n"\
+			"	movs	r1, r0, lsl #2			\n"\
+			"	ldrne	r1, [%[colors], r1]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #(" #p " + 1)]	\n"\
 			"	strneh	r1, [%[screen], #((" #p " + 1) * 2 )]	\n"\
 			"3:						\n"
@@ -520,16 +520,16 @@ if (Tile & V_FLIP){
 			"	cmp	%[gfx_z1], r9			\n"\
 			"	ldrhib	r9, [%[bp], #" #p "]		\n"\
 			"	bls	3f				\n"\
-			"	cmp	r9, #0				\n"\
-			"	ldrne	r9, [%[colors], r9, lsl #2]	\n"\
+			"	movs	r9, r9, lsl #2			\n"\
+			"	ldrne	r9, [%[colors], r9]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #" #p "]	\n"\
 			"	strneh	r9, [%[screen], #(" #p " * 2)]	\n"\
 			"3:						\n"\
 			"	cmp	%[gfx_z1], r8			\n"\
 			"	ldrhib	r9, [%[bp], #(" #p " + 1)]	\n"\
 			"	bls	3f				\n"\
-			"	cmp	r9, #0				\n"\
-			"	ldrne	r9, [%[colors], r9, lsl #2]	\n"\
+			"	movs	r9, r9, lsl #2			\n"\
+			"	ldrne	r9, [%[colors], r9]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #(" #p " + 1)]	\n"\
 			"	strneh	r9, [%[screen], #((" #p " + 1) * 2)]	\n"\
 			"3:						\n"
@@ -565,16 +565,16 @@ if (Tile & V_FLIP){
 			"	cmp	%[gfx_z1], r9			\n"\
 			"	ldrhib	r9, [%[bp], #( 7 - " #p ")]	\n"\
 			"	bls	3f				\n"\
-			"	cmp	r9, #0				\n"\
-			"	ldrne	r9, [%[colors], r9, lsl #2]	\n"\
+			"	movs	r9, r9, lsl #2			\n"\
+			"	ldrne	r9, [%[colors], r9]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #" #p "]	\n"\
 			"	strneh	r9, [%[screen], #(" #p " * 2)]	\n"\
 			"3:						\n"\
 			"	cmp	%[gfx_z1], r8			\n"\
 			"	ldrhib	r9, [%[bp], #(7 - " #p " - 1)]	\n"\
 			"	bls	3f				\n"\
-			"	cmp	r9, #0				\n"\
-			"	ldrne	r9, [%[colors], r9, lsl #2]	\n"\
+			"	movs	r9, r9, lsl #2			\n"\
+			"	ldrne	r9, [%[colors], r9]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #(" #p " + 1)]	\n"\
 			"	strneh	r9, [%[screen], #((" #p " + 1) * 2 )]	\n"\
 			"3:						\n"
@@ -680,8 +680,8 @@ Offset += StartPixel;
 			"	ldrb	r9, [%[bp], #" #p "]		\n"\
 			"	cmp	%[gfx_z1], r8			\n"\
 			"	bls	3f				\n"\
-			"	cmp	r9, #0				\n"\
-			"	ldrne	r9, [%[colors], r9, lsl #2]	\n"\
+			"	movs	r9, r9, lsl #2			\n"\
+			"	ldrne	r9, [%[colors], r9]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #" #p "]	\n"\
 			"	strneh	r9, [%[screen], #(" #p " * 2)]	\n"\
 			"3:						\n"
@@ -691,8 +691,8 @@ Offset += StartPixel;
 			"	ldrb	r9, [%[bp], #(7 - " #p ")]	\n"\
 			"	cmp	%[gfx_z1], r8			\n"\
 			"	bls	3f				\n"\
-			"	cmp	r9, #0				\n"\
-			"	ldrne	r9, [%[colors], r9, lsl #2]	\n"\
+			"	movs	r9, r9, lsl #2			\n"\
+			"	ldrne	r9, [%[colors], r9]		\n"\
 			"	strneb	%[gfx_z2], [%[depth], #" #p "]	\n"\
 			"	strneh	r9, [%[screen], #(" #p " * 2)]	\n"\
 			"3:						\n"\

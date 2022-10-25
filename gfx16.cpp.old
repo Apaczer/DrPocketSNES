@@ -1668,7 +1668,8 @@ void DrawBackgroundMode5 (uint32 /* BGMODE */, uint32 bg, uint8 Z1, uint8 Z2)
 	    {
 		int Offset = (HPos & 7);
 		Count = 8 - Offset;
-		if (Count > Width) Count = Width;
+		if (Count > Width)
+		    Count = Width;
 		s -= (Offset>>1);
 		Tile = READ_2BYTES (t);
 		GFX.Z1 = GFX.Z2 = depths [(Tile & 0x2000) >> 13];
@@ -1719,10 +1720,6 @@ void DrawBackgroundMode5 (uint32 /* BGMODE */, uint32 bg, uint8 Z1, uint8 Z2)
 						    s, Offset, Count, VirtAlign, Lines);
 		    }
 		}
-
-					// Normal, unflipped
-		(*DrawHiResClippedTilePtr) (Tile + (Quot & 1), s, Offset, Count, VirtAlign, Lines);
-
 
 		t += Quot & 1;
 		if (Quot == 63)

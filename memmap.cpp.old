@@ -1095,8 +1095,6 @@ void CMemory::MapRAM ()
 	BlockIsRAM [c + 0x7f0] = TRUE;
 	BlockIsROM [c + 0x7e0] = FALSE;
 	BlockIsROM [c + 0x7f0] = FALSE;
-	REPACK_BIRAM(c + 0x7e0);
-	REPACK_BIRAM(c + 0x7f0);
     }
 
     // Banks 70->77, S-RAM
@@ -1105,7 +1103,6 @@ void CMemory::MapRAM ()
 	Map [c + 0x700] = (uint8 *) MAP_LOROM_SRAM;
 	BlockIsRAM [c + 0x700] = TRUE;
 	BlockIsROM [c + 0x700] = FALSE;
-	REPACK_BIRAM(c + 0x700);
     }
 }
 
@@ -1122,8 +1119,6 @@ void CMemory::MapExtraRAM ()
 	BlockIsRAM [c + 0x7f0] = TRUE;
 	BlockIsROM [c + 0x7e0] = FALSE;
 	BlockIsROM [c + 0x7f0] = FALSE;
-	REPACK_BIRAM(c + 0x7e0);
-	REPACK_BIRAM(c + 0x7f0);
     }
 
     // Banks 70->73, S-RAM
@@ -1142,10 +1137,6 @@ void CMemory::MapExtraRAM ()
 	BlockIsROM [c + 0x720] = FALSE;
 	BlockIsRAM [c + 0x730] = TRUE;
 	BlockIsROM [c + 0x730] = FALSE;
-	REPACK_BIRAM(c + 0x700);
-	REPACK_BIRAM(c + 0x710);
-	REPACK_BIRAM(c + 0x720);
-	REPACK_BIRAM(c + 0x730);
     }
 }
 
@@ -1161,10 +1152,6 @@ void CMemory::LoROMMap ()
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1262,10 +1249,6 @@ void CMemory::HiROMMap ()
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1310,10 +1293,6 @@ void CMemory::HiROMMap ()
 	BlockIsRAM [0x307 + (c << 4)] = TRUE;
 	BlockIsRAM [0xb06 + (c << 4)] = TRUE;
 	BlockIsRAM [0xb07 + (c << 4)] = TRUE;
-	REPACK_BIRAM(0x306 + (c << 4));
-	REPACK_BIRAM(0x307 + (c << 4));
-	REPACK_BIRAM(0xb06 + (c << 4));
-	REPACK_BIRAM(0xb07 + (c << 4));
     }
 
     // Banks 40->7f and c0->ff
@@ -1356,10 +1335,6 @@ void CMemory::TalesROMMap (bool8_32 Interleaved)
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1397,10 +1372,6 @@ void CMemory::TalesROMMap (bool8_32 Interleaved)
 	BlockIsRAM [0x307 + (c << 4)] = TRUE;
 	BlockIsRAM [0xb06 + (c << 4)] = TRUE;
 	BlockIsRAM [0xb07 + (c << 4)] = TRUE;
-	REPACK_BIRAM(0x306 + (c << 4));
-	REPACK_BIRAM(0x307 + (c << 4));
-	REPACK_BIRAM(0xb06 + (c << 4));
-	REPACK_BIRAM(0xb07 + (c << 4));
     }
 
     // Banks 40->7f and c0->ff
@@ -1440,10 +1411,6 @@ void CMemory::AlphaROMMap ()
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1500,10 +1467,6 @@ void CMemory::SuperFXROMMap ()
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1548,8 +1511,6 @@ void CMemory::SuperFXROMMap ()
 	BlockIsRAM [c + 0x7f0] = TRUE;
 	BlockIsROM [c + 0x7e0] = FALSE;
 	BlockIsROM [c + 0x7f0] = FALSE;
-	REPACK_BIRAM(c + 0x7e0);
-	REPACK_BIRAM(c + 0x7f0);
     }
 
     // Banks 70->71, S-RAM
@@ -1558,7 +1519,6 @@ void CMemory::SuperFXROMMap ()
 	Map [c + 0x700] = ::SRAM + (((c >> 4) & 1) << 16);
 	BlockIsRAM [c + 0x700] = TRUE;
 	BlockIsROM [c + 0x700] = FALSE;
-	REPACK_BIRAM(c + 0x700);
     }
 
     // Banks 00->3f and 80->bf address ranges 6000->7fff is RAM.
@@ -1572,10 +1532,6 @@ void CMemory::SuperFXROMMap ()
 	BlockIsRAM [0x007 + (c << 4)] = TRUE;
 	BlockIsRAM [0x806 + (c << 4)] = TRUE;
 	BlockIsRAM [0x807 + (c << 4)] = TRUE;
-	REPACK_BIRAM(0x006 + (c << 4));
-	REPACK_BIRAM(0x007 + (c << 4));
-	REPACK_BIRAM(0x806 + (c << 4));
-	REPACK_BIRAM(0x807 + (c << 4));
     }
     // Replicate the first 2Mb of the ROM at ROM + 2MB such that each 32K
     // block is repeated twice in each 64K block.
@@ -1600,10 +1556,6 @@ void CMemory::SA1ROMMap ()
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) &Memory.FillRAM [0x3000] - 0x3000;
@@ -1660,8 +1612,6 @@ void CMemory::SA1ROMMap ()
 	BlockIsRAM [c + 0x7f0] = TRUE;
 	BlockIsROM [c + 0x7e0] = FALSE;
 	BlockIsROM [c + 0x7f0] = FALSE;
-	REPACK_BIRAM(c + 0x7e0);
-	REPACK_BIRAM(c + 0x7f0);
     }
     WriteProtectROM ();
 
@@ -1699,10 +1649,6 @@ void CMemory::LoROM24MBSMap ()
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1735,8 +1681,6 @@ void CMemory::LoROM24MBSMap ()
 	Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1793,10 +1737,6 @@ void CMemory::SufamiTurboLoROMMap ()
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1880,8 +1820,6 @@ void CMemory::SufamiTurboLoROMMap ()
 	BlockIsRAM [c + 0x7f0] = TRUE;
 	BlockIsROM [c + 0x7e0] = FALSE;
 	BlockIsROM [c + 0x7f0] = FALSE;
-	REPACK_BIRAM(c + 0x7e0);
-	REPACK_BIRAM(c + 0x7f0);
     }
 
     // Banks 60->67, S-RAM
@@ -1890,7 +1828,6 @@ void CMemory::SufamiTurboLoROMMap ()
 	Map [c + 0x600] = (uint8 *) MAP_LOROM_SRAM;
 	BlockIsRAM [c + 0x600] = TRUE;
 	BlockIsROM [c + 0x600] = FALSE;
-	REPACK_BIRAM(c + 0x600);
     }
 
     WriteProtectROM ();
@@ -1908,10 +1845,6 @@ void CMemory::SRAM512KLoROMMap ()
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -1971,14 +1904,6 @@ void CMemory::SRAM1024KLoROMMap ()
 	Map [c + 1] = Map [c + 0x801] = Map [c + 0x401] = Map [c + 0xc01] = RAM;
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = BlockIsRAM [c + 0x400] = BlockIsRAM [c + 0xc00] = TRUE;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = BlockIsRAM [c + 0x401] = BlockIsRAM [c + 0xc01] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
-	REPACK_BIRAM(c + 0x400);
-	REPACK_BIRAM(c + 0x401);
-	REPACK_BIRAM(c + 0xc00);
-	REPACK_BIRAM(c + 0xc01);
 
 	Map [c + 2] = Map [c + 0x802] = Map [c + 0x402] = Map [c + 0xc02] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = Map [c + 0x403] = Map [c + 0xc03] = (uint8 *) MAP_PPU;
@@ -2021,10 +1946,6 @@ void CMemory::BSHiROMMap ()
 	BlockIsRAM [c + 0] = BlockIsRAM [c + 0x800] = TRUE;
 	Map [c + 1] = Map [c + 0x801] = RAM;
 	BlockIsRAM [c + 1] = BlockIsRAM [c + 0x801] = TRUE;
-	REPACK_BIRAM(c + 0x000);
-	REPACK_BIRAM(c + 0x001);
-	REPACK_BIRAM(c + 0x800);
-	REPACK_BIRAM(c + 0x801);
 
 	Map [c + 2] = Map [c + 0x802] = (uint8 *) MAP_PPU;
 	Map [c + 3] = Map [c + 0x803] = (uint8 *) MAP_PPU;
@@ -2034,8 +1955,6 @@ void CMemory::BSHiROMMap ()
 	BlockIsRAM [c + 5] = BlockIsRAM [c + 0x805] = TRUE;
 	Map [c + 6] = Map [c + 0x806] = (uint8 *) MAP_NONE;
 	Map [c + 7] = Map [c + 0x807] = (uint8 *) MAP_NONE;
-	REPACK_BIRAM(c + 0x005);
-	REPACK_BIRAM(c + 0x805);
 	    
 	for (i = c + 8; i < c + 16; i++)
 	{
@@ -2062,13 +1981,11 @@ void CMemory::BSHiROMMap ()
 	{
 	    Map [i] = &ROM [0x400000 + (c << 11)];
 	    BlockIsRAM [i] = TRUE;
-		REPACK_BIRAM(i);
 	}
 	for (i = c + 8; i < c + 16; i++)
 	{
 	    Map [i] = &ROM [0x400000 + (c << 11) - 0x8000];
 	    BlockIsRAM [i] = TRUE;
-		REPACK_BIRAM(i);
 	}
     }
 
@@ -2312,14 +2229,11 @@ void CMemory::ApplyROMFixes ()
 	    Map [c + 0x700] = ROM + 0x200000 + 0x1000 * (c & 0xf0);
 	    BlockIsRAM [c + 0x700] = TRUE;
 	    BlockIsROM [c + 0x700] = FALSE;
-		REPACK_BIRAM(c + 0x700);
 	}
 	for (c = 0; c < 0x400; c += 16)
 	{
 	    Map [c + 5] = Map [c + 0x805] = ROM + 0x300000;
 	    BlockIsRAM [c + 5] = BlockIsRAM [c + 0x805] = TRUE;
-		REPACK_BIRAM(c + 0x005);
-		REPACK_BIRAM(c + 0x800);
 	}
 	WriteProtectROM ();
     }
@@ -2597,10 +2511,6 @@ void CMemory::ApplyROMFixes ()
 	    BlockIsROM [c + 7] = BlockIsROM [c + 0x807] = FALSE;
 	    BlockIsRAM [c + 6] = BlockIsRAM [c + 0x806] = TRUE;
 	    BlockIsRAM [c + 7] = BlockIsRAM [c + 0x807] = TRUE;
-		REPACK_BIRAM(c + 0x006);
-		REPACK_BIRAM(c + 0x007);
-		REPACK_BIRAM(c + 0x806);
-		REPACK_BIRAM(c + 0x807);
 	}
 	WriteProtectROM ();
     }
@@ -2671,7 +2581,6 @@ void CMemory::ApplyROMFixes ()
 	    Map [c + 0x700] = (uint8 *) MAP_LOROM_SRAM;
 	    BlockIsRAM [c + 0x700] = TRUE;
 	    BlockIsROM [c + 0x700] = FALSE;
-		REPACK_BIRAM(c + 0x700);
 	}
 	WriteProtectROM ();
     }

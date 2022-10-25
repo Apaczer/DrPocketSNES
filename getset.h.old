@@ -72,7 +72,7 @@ INLINE uint8 S9xGetByte (uint32 Address)
     if (GetAddress >= (uint8 *) CMemory::MAP_LAST)
     {
 #ifdef VAR_CYCLES
-	CPU.Cycles += Memory.MemorySpeed [block] >> MS_SHIFT;
+	CPU.Cycles += Memory.MemorySpeed [block];
 #endif
 #ifdef CPU_SHUTDOWN
 	if (Memory.BlockIsRAM [block])
@@ -163,7 +163,7 @@ INLINE uint16 S9xGetWord (uint32 Address)
     if (GetAddress >= (uint8 *) CMemory::MAP_LAST)
     {
 #ifdef VAR_CYCLES
-	CPU.Cycles += Memory.MemorySpeed [block] >> (MS_SHIFT - 1); // << 1;
+	CPU.Cycles += Memory.MemorySpeed [block] << 1;
 #endif
 #ifdef CPU_SHUTDOWN
 	if (Memory.BlockIsRAM [block])
@@ -271,7 +271,7 @@ INLINE void S9xSetByte (uint8 Byte, uint32 Address)
     if (SetAddress >= (uint8 *) CMemory::MAP_LAST)
     {
 #ifdef VAR_CYCLES
-	CPU.Cycles += Memory.MemorySpeed [block] >> MS_SHIFT;
+	CPU.Cycles += Memory.MemorySpeed [block];
 #endif
 #ifdef CPU_SHUTDOWN
 	SetAddress += Address & 0xffff;
@@ -400,7 +400,7 @@ INLINE void S9xSetWord (uint16 Word, uint32 Address)
     if (SetAddress >= (uint8 *) CMemory::MAP_LAST)
     {
 #ifdef VAR_CYCLES
-	CPU.Cycles += Memory.MemorySpeed [block] >> (MS_SHIFT - 1); //<< 1;
+	CPU.Cycles += Memory.MemorySpeed [block] << 1;
 #endif
 #if defined(CPU_SHUTDOWN) && defined(USE_SA1)
 	SetAddress += Address & 0xffff;
@@ -613,7 +613,7 @@ INLINE void S9xSetPCBase (uint32 Address)
     if (GetAddress >= (uint8 *) CMemory::MAP_LAST)
     {
 #ifdef VAR_CYCLES
-	CPU.MemSpeed = Memory.MemorySpeed [block] >> MS_SHIFT;
+	CPU.MemSpeed = Memory.MemorySpeed [block];
 	CPU.MemSpeedx2 = CPU.MemSpeed << 1;
 #endif
 	CPU.PCBase = GetAddress;

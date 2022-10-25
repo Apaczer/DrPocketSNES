@@ -10,54 +10,83 @@ extern struct SLineData LineData[240];
 extern struct SLineMatrixData LineMatrixData [240];
 extern uint8  Mode7Depths [2];
 
-#define M7 	19
+#define M7 19
+
+#ifdef __DEBUG__
+ 
+	#define DMSG(rop) printf("Rendering Mode7, ROp: " rop ", R:%d, r2130: %d\n", PPU.Mode7Repeat, GFX.r2130 & 1)			
+#else
+	#define DMSG(rop)
+#endif
+
+void DrawBGMode7Background16NewR0 (uint8 *Screen);
+void DrawBGMode7Background16NewR1R2 (uint8 *Screen);
+void DrawBGMode7Background16NewR3 (uint8 *Screen);
+
+void DrawBGMode7Background16New (uint8 *Screen)
+{
+	DMSG("totally opaque");
+    CHECK_SOUND(); 
+
+    if (GFX.r2130 & 1) { 
+		if (IPPU.DirectColourMapsNeedRebuild) S9xBuildDirectColourMaps (); 
+		GFX.ScreenColors = DirectColourMaps [0]; 
+    } else  GFX.ScreenColors = IPPU.ScreenColors;
+
+	switch (PPU.Mode7Repeat) {
+		case 0: 
+			DrawBGMode7Background16NewR0(Screen);
+			return;
+		case 3:
+			DrawBGMode7Background16NewR3(Screen);
+			return;
+		default:
+			DrawBGMode7Background16NewR1R2(Screen);
+			return;
+	} 
+}
+
 #define M7C	0x1fff
 
-#define MACRO_CONCAT(a,b) a##b
-#define DEC_FMODE7(n) MACRO_CONCAT(void DrawBGMode7Background16Prio, n)(uint8 *Screen, int bg)
-
-static void DrawBGMode7Background16R3 (uint8 *Screen, int bg)
+void DrawBGMode7Background16NewR3 (uint8 *Screen)
 {
+    uint8 *VRAM1 = Memory.VRAM + 1;   
     int aa, cc;  
     int startx; 
     uint32 Left = 0; 
     uint32 Right = 256; 
     uint32 ClipCount = GFX.pCurrentClip->Count [0]; 
     
-    int32 HOffset; 
-    int32 VOffset; 
-    int32 CentreX; 
-    int32 CentreY;
-    uint8 *d;
+    int HOffset; 
+    int VOffset; 
+    int CentreX; 
+    int CentreY;
     uint16 *p;
     int dir;
     int yy; 
-    uint8 *yy3;
-    int xx3;
-    int xx; 
+    int xx;
+    int yy3;
+    int xx3; 
     int BB; 
     int DD; 
-    uint32 Line;
-    uint32 clip; 
-    uint8 b; 
-    uint8 *Depth;
-    unsigned int fixedColour = GFX.FixedColour;
-    uint32 depth = Mode7Depths[0] | (Mode7Depths[1] << 8);
+    int Line;
+    uint32 clip;
+
+	//FILE *f = fopen("mode7.log", "a"); 
 
     if (!ClipCount) ClipCount = 1; 
 
     Screen += GFX.StartY * GFX_PITCH; 
-    Depth = GFX.DB + GFX.StartY * GFX_PPL;
     struct SLineMatrixData *l = &LineMatrixData [GFX.StartY]; 
 
-    for (Line = GFX.StartY; Line <= GFX.EndY; Line++, Screen += GFX_PITCH, Depth += GFX_PPL, l++) { 
+    for (Line = GFX.StartY; Line <= GFX.EndY; Line++, Screen += GFX_PITCH, l++) { 
 	HOffset = ((int32) LineData[Line].BG[0].HOffset << M7) >> M7; 
 	VOffset = ((int32) LineData[Line].BG[0].VOffset << M7) >> M7; 
 
 	CentreX = ((int32) l->CentreX << M7) >> M7; 
 	CentreY = ((int32) l->CentreY << M7) >> M7; 
 
-	if (PPU.Mode7VFlip) yy = 255 - (int) Line; 
+	if (PPU.Mode7VFlip) yy = 255 - Line; 
 	else yy = Line; 
 
 	yy += VOffset - CentreY;
@@ -66,7 +95,7 @@ static void DrawBGMode7Background16R3 (uint8 *Screen, int bg)
 	BB = l->MatrixB * yy + (CentreX << 8); 
 	DD = l->MatrixD * yy + (CentreY << 8); 
 
-	yy3 = Memory.VRAM + 1 + (((yy + CentreY) & 7) << 4);
+	yy3 = ((yy + CentreY) & 7) << 4;
 	
 	for (clip = 0; clip < ClipCount; clip++) 
 	{ 
@@ -76,25 +105,31 @@ static void DrawBGMode7Background16R3 (uint8 *Screen, int bg)
 			if (Right <= Left) continue; 
 	    	} 
 	    p = (uint16 *) Screen + Left; 
-	    d = Depth + Left;
 
 	    if (PPU.Mode7HFlip) { 
 			startx = Right - 1; 
 			aa = -l->MatrixA; 
 			cc = -l->MatrixC;
-			dir = (-1) << 1;
+			dir = -1;
 	    } else { 
 			startx = Left; 
 			aa = l->MatrixA; 
 			cc = l->MatrixC;
-			dir = 1 << 1;
-	    } 
+			dir = 1;
+	    }
 
-	    xx3 = (startx + HOffset); 
+		int AA = (l->MatrixA * (startx + xx) + BB);
+		int CC = (l->MatrixC * (startx + xx) + DD);
+
+		int width = Right - Left; 
+		xx3 = (startx + HOffset);
+
+	//fprintf(f, "AA:%d, CC:%d, daa: %d, dcc: %d, MA: %d, MB: %d, MC: %d, MD: %d\n", AA, CC, aa, cc, l->MatrixA, l->MatrixB, l->MatrixC, l->MatrixD); 
+
 
 		asm volatile (
 		"1:						\n"
-		"	mov	r3, %[AA], asr #18		\n"	
+		"	mov	r3, %[AA], asr #18		\n" 
 		"	orrs	r3, r3, %[CC], asr #18		\n"			
 		"	bne	2f				\n" 
 		"						\n"
@@ -111,99 +146,55 @@ static void DrawBGMode7Background16R3 (uint8 *Screen, int bg)
 		"	add	r3, r3, r0, asr #7		\n"
 		"						\n"
 		"	ldrb	r0, [r3, #1]			\n"
-		"	ldrb	r3, [%[d], #1]!			\n"
-		"	movs	r1, r0, lsl #24			\n"
-		"	beq	4f				\n"
-		"	andpl	r1, %[depth], #0xff		\n"
-		"	movmi	r1, %[depth], asr #8		\n"	 
-		"	cmp	r1, r3				\n"
-		"	bls	4f				\n"
-
-		"	strb	r1, [%[d]]		\n"	
-		
-		"	mov	r1, #0x13000			\n" // R1 = ZDELTA
-		"	ldrb	r3, [%[d], r1]			\n"
-		"	ldr	r1, [%[colors], r0, lsl #2]	\n"	
-										
-		"	cmp	r3, #1				\n"
-		"	blo	11f				\n"
-		"	addne	r0, %[delta], %[delta]	\n"
-		"	ldreq	r3, %[fixedcolour]		\n"
-										
-		ROP
-		"11:						\n"
-		"	strh	r1, [%[p]]			\n"		
-
-		"	ldr	r3, %[dir]			\n"
-		"	ldr	r1, %[daa]			\n"
-		"	add	%[xx3], %[xx3], r3		\n"
-		"	add	%[AA], %[AA], r1		\n"
+		"	add	%[AA], %[AA], %[daa]		\n"
+		"	movs	r0, r0, lsl #2			\n"		
+		"	ldrne	r1, [%[colors], r0]		\n"	
+		"	add	%[xx3], %[xx3], %[dir]		\n"
+		"	strneh	r1, [%[p]]			\n"		
+		"						\n"
 		"	add	%[CC], %[CC], %[dcc]		\n"
 		"	add	%[p], %[p], #2			\n"
 		"	subs	%[x], %[x], #1			\n"
 		"	bne	1b				\n"
 		"	b	3f				\n"
-		"2:						\n"
-		"	ldr	r3, %[yy3]			\n"
-		"	and	r0, %[xx3], #(7	<< 1)		\n"
+		"2:						\n" 
+		"	and	r0, %[xx3], #7			\n"
+		"	add	r3, %[yy3], r0, lsl #1 		\n"
 		"						\n"
-		"	ldrb	r0, [r3, r0]			\n"
-		"	ldrb	r3, [%[d], #1]!			\n"
-		"	movs	r1, r0, lsl #24			\n"
-		"	beq	4f				\n"
-		"	andpl	r1, %[depth], #0xff		\n"
-		"	movmi	r1, %[depth], asr #8		\n"	 		
-		"	cmp	r1, r3				\n"
-		"	bls	4f				\n"
-
-		"	strb	r1, [%[d]]			\n"
-		
-		"	mov	r1, #0x13000			\n" // R1 = ZDELTA
-		"	ldrb	r3, [%[d], r1]			\n"
-		"	ldr	r1, [%[colors], r0, lsl #2]	\n"	
-												
-		"	cmp	r3, #1				\n"
-		"	blo	12f				\n"
-		"	ldrneh	r3, [%[p], %[delta]]		\n"
-		"	ldreq	r3, %[fixedcolour]		\n"
-										
-		ROP
-		"12:						\n"
-		"	strh	r1, [%[p]]			\n"		
-		"4:						\n"
-		"	ldr	r3, %[dir]			\n"
-		"	ldr	r0, %[daa]			\n"
-		"	add	%[xx3], %[xx3], r3		\n"
-		"	add	%[AA], %[AA], r0		\n"
+		"	add	r3, %[VRAM], r3			\n"
+		"	ldrb	r0, [r3, #1]			\n"
+		"	add	%[AA], %[AA], %[daa]		\n"
+		"	movs	r0, r0, lsl #2			\n"		
+		"	ldrne	r1, [%[colors], r0]		\n"	
+		"	add	%[xx3], %[xx3], %[dir]		\n"
+		"	strneh	r1, [%[p]]			\n"		
+		"						\n"
 		"	add	%[CC], %[CC], %[dcc]		\n"
 		"	add	%[p], %[p], #2			\n"
 		"	subs	%[x], %[x], #1			\n"
 		"	bne	1b				\n"
 		"3:						\n"
-		:
-		: [x] "r" (Right - Left),
-		  [AA] "r" (l->MatrixA * (startx + xx) + BB),
-		  [CC] "r" (l->MatrixC * (startx + xx) + DD),
-		  [daa] "m" (aa),
+		: [xx3] "+r" (xx3),
+		  [x] "+r" (width),
+		  [p] "+r" (p),
+		  [AA] "+r" (AA),
+		  [CC] "+r" (CC)
+		: [yy3] "r" (yy3),
+		  [daa] "r" (aa),
 		  [dcc] "r" (cc),
 		  [VRAM] "r" (Memory.VRAM),
 		  [colors] "r" (GFX.ScreenColors),
-		  [p] "r" (p),
-		  [d] "r" (d-1),
-		  [depth] "r" (depth),
-		  [dir] "m" (dir),
-		  [yy3] "m" (yy3), 
-		  [delta] "r" (GFX.Delta << 1),
-		  [fixedcolour] "m" (fixedColour),
-		  [xx3] "r" (xx3)
+		  [dir] "r" (dir) 	
 		: "r0", "r1", "r3", "cc"
-		); 
+		);
 	} 
     }
 
+	//fclose(f);
+
 }
 
-static void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg)
+void DrawBGMode7Background16NewR1R2 (uint8 *Screen)
 {
     int aa, cc;  
     int startx; 
@@ -215,7 +206,6 @@ static void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg)
     int32 VOffset; 
     int32 CentreX; 
     int32 CentreY;
-    uint8 *d;
     uint16 *p;
     int yy; 
     int xx; 
@@ -229,19 +219,13 @@ static void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg)
     if (Settings.Dezaemon && PPU.Mode7Repeat == 2) AndByX = 0x7ff;
     AndByY = AndByX << 4;
     AndByX = AndByX << 1;
-    uint8 *Depth;
-    unsigned int fixedColour = GFX.FixedColour;
-    uint32 depth = Mode7Depths[0] | (Mode7Depths[1] << 8);
-
 
     if (!ClipCount) ClipCount = 1; 
 
     Screen += GFX.StartY * GFX_PITCH; 
-    Depth = GFX.DB + GFX.StartY * GFX_PPL;
-
     struct SLineMatrixData *l = &LineMatrixData [GFX.StartY]; 
 
-    for (Line = GFX.StartY; Line <= GFX.EndY; Line++, Screen += GFX_PITCH, Depth += GFX_PPL, l++) { 
+    for (Line = GFX.StartY; Line <= GFX.EndY; Line++, Screen += GFX_PITCH, l++) { 
 	HOffset = ((int32) LineData[Line].BG[0].HOffset << M7) >> M7; 
 	VOffset = ((int32) LineData[Line].BG[0].VOffset << M7) >> M7; 
 
@@ -264,7 +248,6 @@ static void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg)
 			if (Right <= Left) continue; 
 	    	} 
 	    p = (uint16 *) Screen + Left; 
-	    d = Depth + Left;
 
 	    if (PPU.Mode7HFlip) { 
 			startx = Right - 1; 
@@ -281,10 +264,8 @@ static void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg)
 		"	orrs	r3, r3, %[CC], asr #18		\n"			
 		"	bne	2f				\n" 
 		"						\n"
-		"	ldr	r1, %[AndByY]			\n"
-		"	ldr	r0, %[AndByX]			\n"
-		"	and	r1, r1, %[CC], asr #4		\n"
-		"	and	r0, r0, %[AA], asr #7	\n"
+		"	and	r1, %[AndByY], %[CC], asr #4	\n"
+		"	and	r0, %[AndByX], %[AA], asr #7	\n"
 		"						\n"
 		"	and	r3, r1, #0x7f			\n" 
 		"	sub	r3, r1, r3			\n" 
@@ -300,35 +281,22 @@ static void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg)
 		"	add	r3, r3, r0			\n"
 		"						\n"
 		"	ldrb	r0, [r3, #1]			\n"
-		"	ldrb	r3, [%[d], #1]!			\n"
-		"	movs	r1, r0, lsl #24			\n"
-		"	beq	2f				\n"
-		"	andpl	r1, %[depth], #0xff		\n"
-		"	movmi	r1, %[depth], asr #8		\n"	 
-		"	cmp	r1, r3				\n"
-		"	bls	2f				\n"
-
-		"	strb	r1, [%[d]]			\n"
-
-		"	mov	r1, #0x13000			\n" // R1 = ZDELTA
-		"	ldrb	r3, [%[d], r1]			\n"
-		"	ldr	r1, [%[colors], r0, lsl #2]	\n"	
-										
-		"	cmp	r3, #1				\n"
-		"	blo	11f				\n"
-		"	ldrneh	r3, [%[p], %[delta]]			\n"
-		"	ldreq	r3, %[fixedcolour]		\n"
-										
-		ROP
-		"11:						\n"
-		"	strh	r1, [%[p]]			\n"		
+		"	add	%[AA], %[AA], %[daa]		\n"
+		"	movs	r0, r0, lsl #2			\n"		
+		"	ldrne	r1, [%[colors], r0]		\n"	
+		"	add	%[CC], %[CC], %[dcc]		\n"
+		"	strneh	r1, [%[p]]			\n"
+		"	add	%[p], %[p], #2			\n"
+		"	subs	%[x], %[x], #1			\n"
+		"	bne	1b				\n"
+		"	b	3f				\n"		
 		"2:						\n"
-		//"	ldr	r0, %[dcc]			\n"
 		"	add	%[AA], %[AA], %[daa]		\n"
 		"	add	%[CC], %[CC], %[dcc]		\n"
 		"	add	%[p], %[p], #2			\n"
 		"	subs	%[x], %[x], #1			\n"
 		"	bne	1b				\n"
+		"3:						\n"
 		:
 		: [x] "r" (Right - Left),
 		  [AA] "r" (l->MatrixA * (startx + xx) + BB),
@@ -338,13 +306,8 @@ static void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg)
 		  [VRAM] "r" (Memory.VRAM),
 		  [colors] "r" (GFX.ScreenColors),
 		  [p] "r" (p),
-		  [d] "r" (d-1),
-		  [depth] "r" (depth),
-		  //[zdelta] "r" (GFX.DepthDelta),
-		  [delta] "r" (GFX.Delta << 1),
-		  [fixedcolour] "m" (fixedColour),
-		  [AndByX] "m" (AndByX),
-		  [AndByY] "m" (AndByY)
+		  [AndByX] "r" (AndByX),
+		  [AndByY] "r" (AndByY)
 		: "r0", "r1", "r3", "cc"
 		); 
  	 }
@@ -352,9 +315,9 @@ static void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg)
 }
 
 
-
-static void DrawBGMode7Background16R0 (uint8 *Screen, int bg)
+void DrawBGMode7Background16NewR0 (uint8 *Screen)
 {  
+    uint8 *VRAM1 = Memory.VRAM + 1; 
     int aa, cc;  
     int startx; 
     uint32 Left; 
@@ -366,7 +329,7 @@ static void DrawBGMode7Background16R0 (uint8 *Screen, int bg)
     int32 CentreX; 
     int32 CentreY;
     uint16 *p;
-    uint8 *d;
+uint8 *z;
     int yy; 
     int xx; 
     int BB; 
@@ -374,10 +337,8 @@ static void DrawBGMode7Background16R0 (uint8 *Screen, int bg)
     uint32 Line;
     uint32 clip;
     struct SLineMatrixData *l;
-    uint8 *Depth;
-    unsigned int fixedColour = GFX.FixedColour;
-    uint32 depth = Mode7Depths[0] | (Mode7Depths[1] << 8);
-    unsigned int AndByY = (0x3ff << 4);
+
+     
 
 	Left = 0; 
 	Right = 256; 
@@ -388,9 +349,8 @@ static void DrawBGMode7Background16R0 (uint8 *Screen, int bg)
 
     l = &LineMatrixData [GFX.StartY];
     Screen  += GFX.StartY * GFX_PITCH;
-    Depth = GFX.DB + GFX.StartY * GFX_PPL;
 
-    for (Line = GFX.StartY; Line <= GFX.EndY; Line++, Screen += GFX_PITCH, Depth += GFX_PPL, l++) { 
+    for (Line = GFX.StartY; Line <= GFX.EndY; Line++, Screen += GFX_PITCH, l++) { 
 	HOffset = ((int32) LineData[Line].BG[0].HOffset << M7) >> M7; 
 	VOffset = ((int32) LineData[Line].BG[0].VOffset << M7) >> M7; 
 
@@ -400,9 +360,13 @@ static void DrawBGMode7Background16R0 (uint8 *Screen, int bg)
 	if (PPU.Mode7VFlip) yy = 255 - (int) Line; 
 	else yy = Line; 
 
-	yy += (VOffset - CentreY) % 1023;
+	/*yy += (VOffset - CentreY) % 1023;
 	xx = (HOffset - CentreX) % 1023;
+*/
 
+	yy += ((VOffset - CentreY) << (32-10+1)) >> (32-10+1) ;
+	xx = ((HOffset - CentreX) << (32-10+1)) >> (32-10+1);
+	
 	BB = l->MatrixB * yy + (CentreX << 8); 
 	DD = l->MatrixD * yy + (CentreY << 8); 
 
@@ -415,7 +379,7 @@ static void DrawBGMode7Background16R0 (uint8 *Screen, int bg)
 	    	} 
 
 	    p = (uint16 *) Screen + Left; 
-	    d = Depth + Left;
+	
 
 	    if (PPU.Mode7HFlip) { 
 			startx = Right - 1; 
@@ -427,54 +391,32 @@ static void DrawBGMode7Background16R0 (uint8 *Screen, int bg)
 			cc = l->MatrixC;
 	    } 
 		asm volatile (
-		"	ldr	r3, %[AndByY]			\n"		
+		"						\n"
 		"1:						\n"
-		"	and	r1, r3, %[CC], asr #4		\n"
-		"	and	r0, r3, %[AA], asr #4		\n"
+		"	and	r1, %[AndByY], %[CC], asr #4	\n"
 		"	and	r3, r1, #0x7f			\n" 
+		"	and	r0, %[AndByX], %[AA], asr #7	\n"
 		"	sub	r3, r1, r3			\n" 
-		"	add	r3, r3, r0, asr #7		\n"
+		"	add	r3, r3, r0, asr #4		\n"
 		"	add	r3, r3, r3			\n"
 		"	ldrb	r3, [%[VRAM], r3]		\n"
 		"						\n"
 		"	and	r1, r1, #0x70			\n"
 		"	add	r3, %[VRAM], r3, lsl #7		\n"
 		"						\n"
-		"	and	r0, r0, #(14 << 3)		\n"
+		"	and	r0, r0, #14			\n"
 		"	add	r3, r3, r1			\n"
-		"	add	r3, r3, r0, asr #3		\n"
+		"	add	r3, r3, r0			\n"
 		"						\n"
 		"	ldrb	r0, [r3, #1]			\n"
-		"	ldrb	r3, [%[d], #1]!			\n"
-		"	movs	r1, r0, lsl #24			\n"
-		"	beq	2f				\n"
-		"	andpl	r1, %[depth], #0xff		\n"
-		"	movmi	r1, %[depth], asr #8		\n"	 		
-		"	cmp	r1, r3				\n"
-		"	bls	2f				\n"
-
-		"	strb	r1, [%[d]]			\n"
-
-		"	mov	r1, #0x13000			\n" // R1 = ZDELTA
-		"	ldrb	r3, [%[d], r1]			\n"
-		"	ldr	r1, [%[colors], r0, lsl #2] 	\n"	
-										
-		"	cmp	r3, #1				\n"
-		"	blo	11f				\n"
-		"	ldrneh	r3, [%[p], %[delta]]			\n"
-		"	ldreq	r3, %[fixedcolour]		\n"
-										
-		ROP
-		"11:						\n"
-		"	strh	r1, [%[p]]			\n"		
-
-		"2:						\n"
-		//"	ldr	r0, %[dcc]			\n"
 		"	add	%[AA], %[AA], %[daa]		\n"
+		"	movs	r0, r0, lsl #2			\n"		
 		"	add	%[CC], %[CC], %[dcc]		\n"
+		"	ldrne	r1, [%[colors], r0]		\n"	
 		"	add	%[p], %[p], #2			\n"
+		"	strneh	r1, [%[p]]			\n"		
+		"						\n"
 		"	subs	%[x], %[x], #1			\n"
-		"	ldrne	r3, %[AndByY]			\n"		
 		"	bne	1b				\n"
 		:
 		: [x] "r" (Right - Left),
@@ -485,43 +427,13 @@ static void DrawBGMode7Background16R0 (uint8 *Screen, int bg)
 		  [VRAM] "r" (Memory.VRAM),
 		  [colors] "r" (GFX.ScreenColors),
 		  [p] "r" (p),
-		  [d] "r" (d-1), 
-		  //[zdelta] "r" (GFX.DepthDelta),
-		  [delta] "r" (GFX.Delta << 1),
-		  [fixedcolour] "m" (fixedColour),
-		  [depth] "r" (depth),
-		  [AndByY] "m" (AndByY)
+		  [AndByX] "r" (0x3ff << 1),
+		  [AndByY] "r" (0x3ff << 4)
 		: "r0", "r1", "r3", "cc"
 		);
 
 	} 
     }
 
-}
-
-DEC_FMODE7(ROPNAME)
-{
-#ifdef __DEBUG__
-	#define TOSTRING(n)	#n
-	printf("Rendering Mode7 w/prio, ROp: " TOSTRING(ROPNAME) ", R:%d, r2130: %d, bg: %d\n", PPU.Mode7Repeat, GFX.r2130 & 1, bg)			
-#endif	
-    CHECK_SOUND(); 
-
-    if (GFX.r2130 & 1) {
-		if (IPPU.DirectColourMapsNeedRebuild) S9xBuildDirectColourMaps (); 
-		GFX.ScreenColors = DirectColourMaps [0];
-    } else  GFX.ScreenColors = IPPU.ScreenColors;
-
-	switch (PPU.Mode7Repeat) {
-		case 0: 
-			DrawBGMode7Background16R0(Screen, bg);
-			return;
-		case 3:
-			DrawBGMode7Background16R3(Screen, bg);
-			return;
-		default:
-			DrawBGMode7Background16R1R2(Screen, bg);
-			return;
-	} 
 }
 

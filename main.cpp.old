@@ -1379,7 +1379,6 @@ int main(int argc, char *argv[])
 			gp_setCpuspeed(MENU_CPU_SPEED);
 			if(romloaded)  	
 			{
-				int x;
 				action=EVENT_RUN_SNES_ROM;   // rom loaded okay so continue with emulation
 			}
 			else
@@ -1441,7 +1440,11 @@ int main(int argc, char *argv[])
 				case 21:
 					IAPU.asmJumpTab = &Spc700JumpTab_21;
 					break;
-				}				
+				}
+			
+			for (i=0; i < MEMMAP_NUM_BLOCKS; i++) {
+				Memory.MemorySpeed[i] = Memory.MemorySpeed[i] << 2 | (BlockIsRAM[i] ? 1 : 0);			
+			}
 			
 #ifdef ASMCPU
 			CPU.DSPGet = (void *)GetDSP;

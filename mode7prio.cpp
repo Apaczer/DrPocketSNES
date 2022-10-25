@@ -58,8 +58,6 @@ void DrawBGMode7Background16Prio (uint8 *Screen, int bg)
 
 void DrawBGMode7Background16PrioR3 (uint8 *Screen, int bg)
 {
-
-   uint8 *VRAM1 = Memory.VRAM + 1;   
     int aa, cc;  
     int startx; 
     uint32 Left = 0; 
@@ -157,9 +155,9 @@ void DrawBGMode7Background16PrioR3 (uint8 *Screen, int bg)
 		"	bls	4f				\n"
 
 		"	ldr	r1, %[daa]			\n"
-		"	movs	r0, r0, lsl #2			\n"		
+		"	cmp	r0, #0				\n"		
 		"	add	%[AA], %[AA], r1		\n"
-		"	ldrne	r1, [%[colors], r0]		\n"	
+		"	ldrne	r1, [%[colors], r0, lsl #2]	\n"	
 		"	add	%[xx3], %[xx3], %[dir]		\n"
 		"	strneb	%[depth], [%[d]]		\n"
 		"	ldr	r0, %[dcc]			\n"
@@ -187,8 +185,8 @@ void DrawBGMode7Background16PrioR3 (uint8 *Screen, int bg)
 		"	cmp	r1, r3				\n"
 		"	bls	4f				\n"
 		
-		"	movs	r0, r0, lsl #2			\n"		
-		"	ldrne	r1, [%[colors], r0]		\n"	
+		"	cmp	r0, #0				\n"		
+		"	ldrne	r1, [%[colors], r0, lsl #2]	\n"	
 		"	strneb	%[depth], [%[d]]		\n"
 		"	strneh	r1, [%[p]]			\n"		
 		"4:						\n"
@@ -327,8 +325,8 @@ void DrawBGMode7Background16PrioR1R2 (uint8 *Screen, int bg)
 		"	bls	2f				\n"
 
 		"	add	%[AA], %[AA], %[daa]		\n"
-		"	movs	r0, r0, lsl #2			\n"		
-		"	ldrne	r1, [%[colors], r0]		\n"	
+		"	cmp	r0, #0				\n"		
+		"	ldrne	r1, [%[colors], r0, lsl #2]	\n"	
 		"	strneb	%[depth], [%[d]]		\n"
 		"	add	%[CC], %[CC], %[dcc]		\n"
 		"	strneh	r1, [%[p]]			\n"
@@ -367,7 +365,6 @@ void DrawBGMode7Background16PrioR1R2 (uint8 *Screen, int bg)
 
 void DrawBGMode7Background16PrioR0 (uint8 *Screen, int bg)
 {  
-    uint8 *VRAM1 = Memory.VRAM + 1; 
     int aa, cc;  
     int startx; 
     uint32 Left; 
@@ -470,8 +467,8 @@ void DrawBGMode7Background16PrioR0 (uint8 *Screen, int bg)
 		"	cmp	r1, r3				\n"
 		"	bls	2f				\n"
 
-		"	movs	r0, r0, lsl #2			\n"		
-		"	ldrne	r1, [%[colors], r0]		\n"	
+		"	cmp	r0, #0				\n"		
+		"	ldrne	r1, [%[colors], r0, lsl #2]	\n"	
 		"	strneb	%[depth], [%[d]]		\n"
 		"	strneh	r1, [%[p]]			\n"		
 		"						\n"

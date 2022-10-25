@@ -31,7 +31,6 @@ asmS9xSetPCBase:
 
 	@ Direct memory
 	@ CPU.MemSpeed = MemorySpeed[block]
-	@ Note: MemorySpeed[block] = MemorySpeed[block] << MS_SHIFT | BlockIsRAM[block]
 	ldr	r2, [reg_cpu_var, #MemorySpeed_ofs]
 	bic	rstatus, rstatus, #MEMSPEED_MASK
 	ldr	r1, [r2, r1, lsl #2]
@@ -220,9 +219,8 @@ asmS9xGetByte:
 	ldr		r2, [reg_cpu_var, #Map_ofs]
 	mov		r1, r0, LSR #MEMMAP_SHIFT
 	ldr		r2, [r2, r1, lsl #2]
-	
-	@ Special case ?	
 	cmp		r2, #MAP_LAST
+	@blo		GBSpecial 	 @ special
 	ldrlo		r3, =GBJumpTable
 	ldrlo		pc, [r3, r2, lsl #2]
 
@@ -244,6 +242,10 @@ asmS9xGetByte:
 
 	ldmfd		r13!, {pc} 				@ return
 
+@GBSpecial:
+	
+	@ldr		pc, [pc, r2, lsl #2]
+	@mov		r0, r0 		@ nop, for align
 GBJumpTable:	
 	.long GBPPU
 	.long GBCPU
@@ -262,51 +264,58 @@ GBJumpTable:
 	.long GB7SRM*/
 GBPPU:
 	@ InDMA ?
-	ldrb		r1, [reg_cpu_var, #InDMA_ofs]
+	LDRB		R1,[reg_cpu_var,#InDMA_ofs]
+	@MOV		R0,R0,LSL #16	@ S9xGetPPU(Address&0xFFFF);
 	bic		r0, r0, #0xff0000		
-	movs		r1, r1	
-	addeq		reg_cycles, reg_cycles, #ONE_CYCLE	@ No -> update Cycles
-	STR		reg_cycles, [reg_cpu_var, #Cycles_ofs]	@ Save Cycles
+	MOVS		R1,R1	
+	ADDEQ		reg_cycles,reg_cycles,#ONE_CYCLE		@ No -> update Cycles
+	STR		reg_cycles,[reg_cpu_var,#Cycles_ofs]	@ Save Cycles
+	@MOV		R0,R0,LSR #16	
 	
 	str		rstatus, [reg_cpu_var, #rstatus_ofs]
 		PREPARE_C_CALL
-	bl		S9xGetPPU
+	BL		S9xGetPPU
 		RESTORE_C_CALL
 	ldr		rstatus, [reg_cpu_var, #rstatus_ofs]
 
-	ldr		reg_cycles, [reg_cpu_var, #Cycles_ofs] 	@ Load Cycles	
-	ldmfd		r13!, {pc} 				@ Return
+	LDR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Load Cycles	
+	LDMFD		R13!,{PC} @ Return
 GBCPU:	
-	add		reg_cycles, reg_cycles, #ONE_CYCLE	@ update Cycles	
+	ADD		reg_cycles,reg_cycles,#ONE_CYCLE	@ update Cycles	
+	@MOV		R0,R0,LSL #16 @ S9xGetCPU(Address&0xFFFF);	
 	bic		r0, r0, #0xff0000			
-	str		reg_cycles, [reg_cpu_var, #Cycles_ofs] 	@ Save Cycles
+	STR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Save Cycles
+	@MOV		R0,R0,LSR #16
 		PREPARE_C_CALL
-	bl		S9xGetCPU
+	BL		S9xGetCPU
 		RESTORE_C_CALL
-	ldr		reg_cycles, [reg_cpu_var, #Cycles_ofs] 	@ Load Cycles	
-	ldmfd		r13!, {pc} @ Return
+	LDR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Load Cycles	
+	LDMFD		R13!,{PC} @ Return
 	
 GBDSP:
-	add		reg_cycles, reg_cycles, #SLOW_ONE_CYCLE	@ update Cycles	
+	ADD		reg_cycles,reg_cycles,#SLOW_ONE_CYCLE	@ update Cycles	
+	@MOV		R0,R0,LSL #16 @ S9xGetCPU(Address&0xFFFF);	
 	bic		r0, r0, #0x0ff0000	
-	str		reg_cycles, [reg_cpu_var, #Cycles_ofs] 	@ Save Cycles
+	STR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Save Cycles
+	@MOV		R0,R0,LSR #16
 
 	ldr		reg_cycles, [reg_cpu_var, #DSPGet_ofs]
 		PREPARE_C_CALL
 	blx		reg_cycles	
+	@BL		S9xGetDSP		
 		RESTORE_C_CALL
-	ldr		reg_cycles, [reg_cpu_var, #Cycles_ofs] 	@ Load Cycles	
-	ldmfd		r13!, {pc} 				@ Return
+	LDR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Load Cycles	
+	LDMFD		R13!,{PC} @ Return
 GBLSRAM:
-	ldr		r2, [reg_cpu_var, #SRAMMask]
-	ldr		r1, [reg_cpu_var, #SRAM]	
-	and		r0, r2, r0				@ Address&SRAMMask
-	add		reg_cycles, reg_cycles, #SLOW_ONE_CYCLE	@ update Cycles		
-	ldrb		r0, [r1, r0]				@ r0 = Memory.SRAM[Address & SRAMMask]
-	ldmfd		r13!, {pc}
+	ADD		reg_cycles,reg_cycles,#SLOW_ONE_CYCLE	@ update Cycles		
+	LDR		R2,[reg_cpu_var,#SRAMMask]
+	LDR		R1,[reg_cpu_var,#SRAM]	
+	AND		R0,R2,R0		@ Address&SRAMMask
+	LDRB		R0,[R1,R0]		@ *Memory.SRAM + Address&SRAMMask
+	LDMFD		R13!,{PC}
 GB7SRM:	
 GBHSRAM:
-	add		reg_cycles, reg_cycles, #SLOW_ONE_CYCLE	@ update Cycles		
+	ADD		reg_cycles,reg_cycles,#SLOW_ONE_CYCLE	@ update Cycles		
 	
 	MOV		R1,R0,LSL #17  
 	AND		R2,R0,#0xF0000
@@ -326,11 +335,16 @@ GBNONE:
 	ADD		reg_cycles,reg_cycles,#SLOW_ONE_CYCLE	@ update Cycles
 	AND		R0,R0,#0xFF
 	LDMFD		R13!,{PC}
+@ GBDEBUG:
+	/*ADD		reg_cycles,reg_cycles,#SLOW_ONE_CYCLE	@ update Cycles
+	MOV		R0,#0
+	LDMFD		R13!,{PC}*/
 GBC4:
 	ADD		reg_cycles,reg_cycles,#SLOW_ONE_CYCLE	@ update Cycles	
 	@MOV		R0,R0,LSL #16 @ S9xGetC4(Address&0xFFFF);	
 	bic		r0, r0, #0xff0000			
 	STR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Save Cycles
+	@MOV		R0,R0,LSR #16
 		PREPARE_C_CALL
 	BL		S9xGetC4
 		RESTORE_C_CALL
@@ -381,21 +395,49 @@ GW_NotBoundary:
 	@ MEMMAP_SHIFT is 12, Address is 0xFFFFFFFF at max, so
 	@ R1 is maxed by 0x000FFFFF, MEMMAP_MASK is 0x1000-1=0xFFF
 	@ so AND MEMMAP_MASK is BIC 0xFF000
-	@ r2 = Map[block] (GetAddress)
-	ldr		r2, [reg_cpu_var, #Map_ofs]
-	mov		r1, r0, lsr #MEMMAP_SHIFT
-	ldr		r2, [r2, r1, lsl #2]
-
-	@ Special case ?
-	cmp		r2, #MAP_LAST
+	@BIC		R1,R1,#0xFF000
+	@ R2 <= Map[block] (GetAddress)
+	LDR		R2,[reg_cpu_var,#Map_ofs]
+	MOV		R1,R0,LSR #MEMMAP_SHIFT
+	LDR		R2,[R2,R1,LSL #2]
+	CMP		R2,#MAP_LAST
+	@BLO		GWSpecial  @ special
 	ldrlo		r3, =GWJumpTable
 	ldrlo		pc, [r3, r2, lsl #2]
 
-	@ Direct ROM/RAM acess	
 	@  Direct ROM/RAM acess
-	@ r2 = GetAddress + Address & 0xFFFF	
-	@ r3 = MemorySpeed[block]; 
-	@ Note: MemorySpeed[block] = MemorySpeed[block] << MS_SHIFT | BlockIsRAM[block]
+	
+	@TST		R0,#1	
+	@BNE		GW_Not_Aligned1
+	@ R2 <= GetAddress + Address & 0xFFFF	
+	@ R3 <= MemorySpeed[block]			
+	@LDR		R3,[reg_cpu_var,#MemorySpeed_ofs]
+	@bic		r0, r0, #0xff0000		
+	@LDR		R3,[R3,R1, lsl #2]	
+	@ Update CPU.Cycles
+	@ADD		reg_cycles,reg_cycles,R3, lsr #(MS_SHIFT - 1) @, LSL #1
+	@ R3 = BlockIsRAM[block]
+	@LDR		R3,[reg_cpu_var,#BlockIsRAM_ofs]
+	@ Get value to return
+	@LDRH		R0,[R2,R0]
+	@LDRB		R3,[R3,R1]
+	@MOVS		R3,R3
+	@ldmeqfd		r13!, {PC} @ return
+	@  if BlockIsRAM => update for CPUShutdown
+	@LDRNE		R1,[reg_cpu_var,#PCAtOpcodeStart_ofs]
+	@orrne		rstatus, rstatus, #MASK_SHUTDOWN	
+	@STRNE		R1,[reg_cpu_var,#WaitAddress_ofs]
+	
+	@LDMFD		R13!,{PC} @ Return
+
+GW_Not_Aligned1:			
+
+	@MOV		R0,R0,LSL #16		
+	@ADD		R3,R0,#0x10000
+	@LDRB		R3,[R2,R3,LSR #16]	@ GetAddress+ (Address+1)&0xFFFF
+	@LDRB		R0,[R2,R0,LSR #16]	@ GetAddress+ Address&0xFFFF
+	@ORR		R0,R0,R3,LSL #8	
+	
 	bic		r0, r0, #0xff0000		
 	ldr		r3, [reg_cpu_var, #MemorySpeed_ofs]
 	ldrb		r0, [r2, r0]!
@@ -412,6 +454,24 @@ GW_NotBoundary:
 	str		r1, [reg_cpu_var, #WaitAddress_ofs]			
 	ldmfd		r13!, {pc}  				@ Return
 
+
+	@  if BlockIsRAM => update for CPUShutdown
+	@@LDR		R3,[reg_cpu_var,#BlockIsRAM_ofs]	
+	@orr		r0, r0, r2, lsl #8
+	@LDR		R2,[reg_cpu_var,#MemorySpeed_ofs]
+	@LDRB		R3,[R3,R1]   @ R3 = BlockIsRAM[block]
+	@LDR		R2,[R2,R1, lsl #2]   @ R2 <= MemorySpeed[block]
+	@@MOVS		R3,R3 	    @ IsRAM ? CPUShutdown stuff
+	@tst		r3, #1	
+	@ADD		reg_cycles,reg_cycles,R2, lsr #(MS_SHIFT - 1)  @, LSL #1 @ Update CPU.Cycles				
+	@ldmeqfd		r13!, {PC} @ return
+	@LDRNE		R1,[reg_cpu_var,#PCAtOpcodeStart_ofs]
+	@orrne		rstatus, rstatus, #MASK_SHUTDOWN	
+	@STRNE		R1,[reg_cpu_var,#WaitAddress_ofs]			
+	@LDMFD		R13!,{PC}  @ Return
+@GWSpecial:
+@	LDR		PC,[PC,R2,LSL #2]
+@	MOV		R0,R0 		@ nop, for align
 GWJumpTable:
 	.long GWPPU
 	.long GWCPU
@@ -432,24 +492,23 @@ GWJumpTable:
 	MAP_NONE, MAP_DEBUG, MAP_C4, MAP_BWRAM, MAP_BWRAM_BITMAP,
 	MAP_BWRAM_BITMAP2, MAP_SA1RAM, MAP_LAST*/
 
-
 GWPPU:
 	@ InDMA ?
 	LDRB		R1,[reg_cpu_var,#InDMA_ofs]
+	@MOV		R0,R0,LSL #16	@ S9xGetPPU(Address&0xFFFF);
 	bic		r0, r0, #0xff0000			
 	MOVS		R1,R1	
 	ADDEQ		reg_cycles,reg_cycles,#(ONE_CYCLE*2)		@ No -> update Cycles
 	STR		reg_cycles,[reg_cpu_var,#Cycles_ofs]	@ Save Cycles
+	@MOV		R0,R0,LSR #16
 
 	str		rstatus, [reg_cpu_var, #rstatus_ofs]
 		PREPARE_C_CALL_R0
 	BL		S9xGetPPU
-	@LDMFD		R13!,{R1}
-	@STMFD		R13!,{R0}
-	ldr		r1, [r13]
-	str		r0, [r13]
-
+	LDMFD		R13!,{R1}
+	STMFD		R13!,{R0}
 	ADD		R0,R1,#1
+	@ BIC		R0,R0,#0x10000
 	BL		S9xGetPPU
 		RESTORE_C_CALL_R1
 	ldr		rstatus, [reg_cpu_var, #rstatus_ofs]
@@ -459,37 +518,37 @@ GWPPU:
 	LDMFD		R13!,{PC} @ Return
 GWCPU:	
 	ADD		reg_cycles,reg_cycles,#(ONE_CYCLE*2)	@ update Cycles	
+	@MOV		R0,R0,LSL #16 @ S9xGetCPU(Address&0xFFFF);	
 	bic		r0, r0, #0xff0000			
 	STR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Save Cycles
+	@MOV		R0,R0,LSR #16
 		PREPARE_C_CALL_R0
 	BL		S9xGetCPU
-	@LDMFD		R13!,{R1}
-	@STMFD		R13!,{R0}
-	ldr		r1, [r13]
-	str		r0, [r13]
-
+	LDMFD		R13!,{R1}
+	STMFD		R13!,{R0}
 	ADD		R0,R1,#1
+	@ BIC		R0,R0,#0x10000
 	BL		S9xGetCPU			
 		RESTORE_C_CALL_R1
-
 	ORR		R0,R1,R0,LSL #8
 	LDR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Load Cycles	
 	LDMFD		R13!,{PC} @ Return
-
 GWDSP:
 	ADD		reg_cycles,reg_cycles,#(SLOW_ONE_CYCLE*2)	@ update Cycles	
+	@MOV		R0,R0,LSL #16 @ S9xGetCPU(Address&0xFFFF);	
 	bic		r0, r0, #0x0ff0000		
 	STR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Save Cycles
+	@MOV		R0,R0,LSR #16
 	
 	ldr		reg_cycles, [reg_cpu_var, #DSPGet_ofs]	
 		PREPARE_C_CALL_R0
 	blx		reg_cycles
-	@LDMFD		R13!,{R1}
-	@STMFD		R13!,{R0}
-	ldr		r1, [r13]
-	str		r0, [r13]
-
+	@BL		S9xGetDSP
+	LDMFD		R13!,{R1}
+	STMFD		R13!,{R0}
 	ADD		R0,R1,#1
+	@ BIC		R0,R0,#0x10000
+	@BL		S9xGetDSP
 	blx		reg_cycles	
 		RESTORE_C_CALL_R1
 	ORR		R0,R1,R0,LSL #8
@@ -573,16 +632,16 @@ GWDEBUG:
 	LDMFD		R13!,{PC}
 GWC4:
 	ADD		reg_cycles,reg_cycles,#(SLOW_ONE_CYCLE*2)	@ update Cycles	
+	@MOV		R0,R0,LSL #16 @ S9xGetC4(Address&0xFFFF);	
 	bic		r0, r0, #0xff0000		
 	STR		reg_cycles,[reg_cpu_var,#Cycles_ofs] @ Save Cycles
+	@MOV		R0,R0,LSR #16
 		PREPARE_C_CALL_R0
 	BL		S9xGetC4
-	@LDMFD		R13!,{R1}
-	@STMFD		R13!,{R0}
-	ldr		r1, [r13]
-	str		r0, [r13]
-
+	LDMFD		R13!,{R1}
+	STMFD		R13!,{R0}
 	ADD		R0,R1,#1
+	@ BIC		R0,R0,#0x10000
 	BL		S9xGetC4
 		RESTORE_C_CALL_R1
 	ORR		R0,R1,R0,LSL #8
@@ -621,16 +680,23 @@ asmS9xSetByte:
 	@  DESTROYED : R0,R1,R2,R3
 	@  UPDATE : reg_cycles	
 	@ cpu shutdown
+	@MOV		R2,#0
+	@STR		R2,[reg_cpu_var,#WaitAddress_ofs]
+
+	@ 
+	
 	@ R3 <= block				
 	@ MEMMAP_SHIFT is 12, Address is 0xFFFFFFFF at max, so
 	@ R0 is maxed by 0x000FFFFF, MEMMAP_MASK is 0x1000-1=0xFFF
 	@ so AND MEMMAP_MASK is BIC 0xFF000
+	@BIC		R3,R3,#0xFF000
 	@ R2 <= Map[block] (SetAddress)
 	LDR		R2,[reg_cpu_var,#WriteMap_ofs]
 	MOV		R3,R0,LSR #MEMMAP_SHIFT
 	LDR		R2,[R2,R3,LSL #2]
 	bic		rstatus, rstatus, #MASK_SHUTDOWN
 	CMP		R2,#MAP_LAST
+	@BLO		SBSpecial  @ special
 	ldrlo		r3, =SBJumpTable
 	ldrlo		pc, [r3, r2, lsl #2]
 

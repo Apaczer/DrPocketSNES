@@ -57,8 +57,6 @@ void DrawBGMode7Background16 (uint8 *Screen, int bg, int depth)
 
 void DrawBGMode7Background16R3 (uint8 *Screen, int bg, int depth)
 {
-
-   uint8 *VRAM1 = Memory.VRAM + 1;   
     int aa, cc;  
     int startx; 
     uint32 Left = 0; 
@@ -74,7 +72,7 @@ void DrawBGMode7Background16R3 (uint8 *Screen, int bg, int depth)
     int dir;
     int yy; 
     int xx; 
-    int yy3;
+    uint8 *yy3;
     int xx3;
     int BB; 
     int DD; 
@@ -105,7 +103,7 @@ void DrawBGMode7Background16R3 (uint8 *Screen, int bg, int depth)
 	BB = l->MatrixB * yy + (CentreX << 8); 
 	DD = l->MatrixD * yy + (CentreY << 8); 
 	
-	yy3 = ((yy + CentreY) & 7) << 4;
+	yy3 = Memory.VRAM + 1 + (((yy + CentreY) & 7) << 4);
 
 	for (clip = 0; clip < ClipCount; clip++) 
 	{ 
@@ -121,12 +119,12 @@ void DrawBGMode7Background16R3 (uint8 *Screen, int bg, int depth)
 			startx = Right - 1; 
 			aa = -l->MatrixA; 
 			cc = -l->MatrixC;
-			dir = -1;
+			dir = (-1) << 1;
 	    } else { 
 			startx = Left; 
 			aa = l->MatrixA; 
 			cc = l->MatrixC;
-			dir = 1;
+			dir = 1 << 1;
 	    } 
 
 
@@ -134,18 +132,19 @@ void DrawBGMode7Background16R3 (uint8 *Screen, int bg, int depth)
 
 		asm volatile (
 		"1:						\n"
-		"	ldrb	r0, [%[d]]			\n"
-		"	mov	r3, %[AA], asr #18		\n"	
+		"	ldrb	r0, [%[d]], #1			\n"
+		"	add	%[p], %[p], #2			\n"
 		"	cmp	%[depth], r0			\n"
 		"	bls	4f				\n"
+		"	mov	r3, %[AA], asr #18		\n"	
 		"	orrs	r3, r3, %[CC], asr #18		\n"			
 		"	bne	2f				\n" 
 		"						\n"
 		"	mov	r3, %[CC], asr #11		\n"  
 		"	mov	r1, %[AA], asr #11		\n" 
 		"	add	r3, r1, r3, lsl #7		\n" 
-		"	mov	r3, r3, lsl #1			\n"
-		"	ldrb	r3, [%[VRAM], r3]		\n"
+		//"	mov	r3, r3, lsl #1			\n"
+		"	ldrb	r3, [%[VRAM], r3, lsl #1]	\n"
 		"						\n"
 		"	and	r1, %[CC], #(7 << 8)		\n"
 		"	add	r3, %[VRAM], r3, lsl #7		\n"
@@ -156,39 +155,35 @@ void DrawBGMode7Background16R3 (uint8 *Screen, int bg, int depth)
 		"	ldr	r1, %[daa]			\n"
 		"	ldrb	r0, [r3, #1]			\n"
 		"	add	%[AA], %[AA], r1		\n"
-		"	movs	r0, r0, lsl #2			\n"		
-		"	ldrne	r1, [%[colors], r0]		\n"	
+		"	cmp	r0, #0				\n"		
+		"	ldrne	r1, [%[colors], r0, lsl #2]	\n"	
 		"	add	%[xx3], %[xx3], %[dir]		\n"
-		"	strneb	%[depth], [%[d]]		\n"
+		"	strneb	%[depth], [%[d], #-1]		\n"
 		"	ldr	r0, %[dcc]			\n"
-		"	strneh	r1, [%[p]]			\n"		
+		"	strneh	r1, [%[p], #-2]			\n"		
 		"						\n"
 		"	add	%[CC], %[CC], r0		\n"
-		"	add	%[d], %[d], #1			\n"
-		"	add	%[p], %[p], #2			\n"
+		//"	add	%[d], %[d], #1			\n"
+		//"	add	%[p], %[p], #2			\n"
 		"	subs	%[x], %[x], #1			\n"
 		"	bne	1b				\n"
 		"	b	3f				\n"
 		"2:						\n"
-		//"	and	r1, %[yy3], #7			\n"
 		"	and	r0, %[xx3], #7			\n"
-		//"	mov	r3, r1, lsl #4 			\n"
-		"	add	r3, %[yy3], r0, lsl #1 		\n"
 		"						\n"
-		"	add	r3, %[VRAM], r3			\n"
-		"	ldrb	r0, [r3, #1]			\n"
-		"	movs	r0, r0, lsl #2			\n"		
-		"	ldrne	r1, [%[colors], r0]		\n"	
-		"	strneb	%[depth], [%[d]]		\n"
-		"	strneh	r1, [%[p]]			\n"		
+		"	ldrb	r0, [%[yy3], r0]		\n"
+		"	cmp	r0, #0				\n"		
+		"	ldrne	r1, [%[colors], r0, lsl #2]	\n"	
+		"	strneb	%[depth], [%[d], #-1]		\n"
+		"	strneh	r1, [%[p], #-2]			\n"		
 		"4:						\n"
 		"	ldr	r0, %[daa]			\n"
 		"	ldr	r1, %[dcc]			\n"
 		"	add	%[xx3], %[xx3], %[dir]		\n"
 		"	add	%[AA], %[AA], r0		\n"
 		"	add	%[CC], %[CC], r1		\n"
-		"	add	%[p], %[p], #2			\n"
-		"	add	%[d], %[d], #1			\n"
+		//"	add	%[p], %[p], #2			\n"
+		//"	add	%[d], %[d], #1			\n"
 		"	subs	%[x], %[x], #1			\n"
 		"	bne	1b				\n"
 		"3:						\n"
@@ -215,7 +210,6 @@ void DrawBGMode7Background16R3 (uint8 *Screen, int bg, int depth)
 
 void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg, int depth)
 {
-
     int aa, cc;  
     int startx; 
     uint32 Left = 0; 
@@ -285,10 +279,11 @@ void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg, int depth)
 	    } 
 		asm volatile (
 		"1:						\n"
-		"	ldrb	r0, [%[d]]			\n"
-		"	mov	r3, %[AA], asr #18		\n"
+		"	ldrb	r0, [%[d]], #1			\n"
+		"	add	%[p], %[p], #2			\n"
 		"	cmp	%[depth], r0			\n"
 		"	bls	2f				\n"
+		"	mov	r3, %[AA], asr #18		\n"
 		"	orrs	r3, r3, %[CC], asr #18		\n"			
 		"	bne	2f				\n" 
 		"						\n"
@@ -300,8 +295,8 @@ void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg, int depth)
 		"	and	r3, r1, #0x7f			\n" 
 		"	sub	r3, r1, r3			\n" 
 		"	add	r3, r3, r0, asr #4		\n"
-		"	add	r3, r3, r3			\n"
-		"	ldrb	r3, [%[VRAM], r3]		\n"
+		//"	add	r3, r3, r3			\n"
+		"	ldrb	r3, [%[VRAM], r3, lsl #1]	\n"
 		"	and	r1, r1, #0x70			\n"
 		"						\n"
 		"	add	r3, %[VRAM], r3, lsl #7		\n"
@@ -312,21 +307,21 @@ void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg, int depth)
 		"						\n"
 		"	ldrb	r0, [r3, #1]			\n"
 		"	add	%[AA], %[AA], %[daa]		\n"
-		"	movs	r0, r0, lsl #2			\n"		
-		"	ldrne	r1, [%[colors], r0]		\n"	
-		"	strneb	%[depth], [%[d]]		\n"
+		"	cmp	r0, #0				\n"		
+		"	ldrne	r1, [%[colors], r0, lsl #2]	\n"	
+		"	strneb	%[depth], [%[d], #-1]		\n"
 		"	add	%[CC], %[CC], %[dcc]		\n"
-		"	strneh	r1, [%[p]]			\n"
-		"	add	%[p], %[p], #2			\n"
-		"	add	%[d], %[d], #1			\n"		
+		"	strneh	r1, [%[p], #-2]			\n"
+		//"	add	%[p], %[p], #2			\n"
+		//"	add	%[d], %[d], #1			\n"		
 		"	subs	%[x], %[x], #1			\n"
 		"	bne	1b				\n"
 		"	b	3f				\n"		
 		"2:						\n"
 		"	add	%[AA], %[AA], %[daa]		\n"
 		"	add	%[CC], %[CC], %[dcc]		\n"
-		"	add	%[p], %[p], #2			\n"
-		"	add	%[d], %[d], #1			\n"		
+		//"	add	%[p], %[p], #2			\n"
+		//"	add	%[d], %[d], #1			\n"		
 		"	subs	%[x], %[x], #1			\n"
 		"	bne	1b				\n"
 		"3:						\n"
@@ -352,7 +347,6 @@ void DrawBGMode7Background16R1R2 (uint8 *Screen, int bg, int depth)
 
 void DrawBGMode7Background16R0 (uint8 *Screen, int bg, int depth)
 {  
-    uint8 *VRAM1 = Memory.VRAM + 1; 
     int aa, cc;  
     int startx; 
     uint32 Left; 
@@ -434,19 +428,20 @@ void DrawBGMode7Background16R0 (uint8 *Screen, int bg, int depth)
 		"	.word	(0x3ff << 4)                    \n"
 		"						\n"
 		"1:						\n"
+		"	ldrb	r0, [%[d]], #1			\n"
 		"	ldr	r3, 8b				\n"
-		"	ldrb	r0, [%[d]]			\n"
-		"	and	r1, r3, %[CC], asr #4		\n"
+		"	add	%[p], %[p], #2			\n"
 		"	cmp	%[depth], r0			\n"
 		"	bls	2f				\n"
+		"	and	r1, r3, %[CC], asr #4		\n"
 		//"	ldr	r0, 7b				\n"
 		"	mov	r0, r3, asr #3			\n"		
 		"	and	r3, r1, #0x7f			\n" 
 		"	and	r0, r0, %[AA], asr #7		\n"
 		"	sub	r3, r1, r3			\n" 
 		"	add	r3, r3, r0, asr #4		\n"
-		"	add	r3, r3, r3			\n"
-		"	ldrb	r3, [%[VRAM], r3]		\n"
+		//"	add	r3, r3, r3			\n"
+		"	ldrb	r3, [%[VRAM], r3, lsl #1]	\n"
 		"						\n"
 		"	and	r1, r1, #0x70			\n"
 		"	add	r3, %[VRAM], r3, lsl #7		\n"
@@ -456,16 +451,16 @@ void DrawBGMode7Background16R0 (uint8 *Screen, int bg, int depth)
 		"	add	r3, r3, r0			\n"
 		"						\n"
 		"	ldrb	r0, [r3, #1]			\n"
-		"	movs	r0, r0, lsl #2			\n"		
-		"	ldrne	r1, [%[colors], r0]		\n"	
-		"	strneb	%[depth], [%[d]]		\n"
-		"	strneh	r1, [%[p]]			\n"		
+		"	cmp	r0, #0				\n"		
+		"	ldrne	r1, [%[colors], r0, lsl #2]	\n"	
+		"	strneb	%[depth], [%[d], #-1]		\n"
+		"	strneh	r1, [%[p], #-2]			\n"		
 		"						\n"
 		"2:						\n"
 		"	add	%[AA], %[AA], %[daa]		\n"
 		"	add	%[CC], %[CC], %[dcc]		\n"
-		"	add	%[p], %[p], #2			\n"
-		"	add	%[d], %[d], #1			\n"		
+		//"	add	%[p], %[p], #2			\n"
+		//"	add	%[d], %[d], #1			\n"		
 		"	subs	%[x], %[x], #1			\n"
 		"	bne	1b				\n"
 		:
