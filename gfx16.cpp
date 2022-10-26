@@ -2795,7 +2795,7 @@ asm volatile (\
 "	ldrhih	r1, [%[p], %[delta]]	\n"\
 "	bls	74f			\n"\
 \
-_ROP_##rop##half \
+ _ROP_ ##rop##half \
 \
 "72:		\n"\
 "	add	%[p], %[p], #2		\n"\

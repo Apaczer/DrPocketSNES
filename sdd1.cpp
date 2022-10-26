@@ -45,7 +45,9 @@
 #include "display.h"
 
 #ifdef __linux
-//#include <unistd.h>
+#ifdef __PANDORA__
+#include <unistd.h>
+#endif
 #endif
 
 void S9xSetSDD1MemoryMap (uint32 bank, uint32 value)

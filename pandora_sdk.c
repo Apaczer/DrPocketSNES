@@ -9,21 +9,25 @@
 #include <sys/soundcard.h>
 #include <linux/fb.h>
 #include <pthread.h>
+#include <SDL/SDL.h>
 #include "menu.h"
-#include "gp2x_sdk.h"
-#include "squidgehack.h"
+#include "pandora_sdk.h"
+#include <alsa/asoundlib.h>
 #include <time.h>
 
 #define SYS_CLK_FREQ 7372800
+#define SOUND_OUTPUT_FREQUENCY 22050
+#define SOUND_SAMPLES_SIZE 1024
+static snd_pcm_t *handle;
 
 volatile unsigned short  gp2x_palette[512][2];
 
 static int fb_size=(320*240*2)+(16*2);
-static int mmuHackStatus=0;
+//static int mmuHackStatus=0;
 
 //unsigned long gp2x_ticks_per_second=7372800/1000;
 unsigned long   gp2x_dev[5]={0,0,0,0,0};
-unsigned long gp2x_physvram[4]={0,0,0,0};
+//unsigned long gp2x_physvram[4]={0,0,0,0};
 
 unsigned short *framebuffer16[4]={0,0,0,0};
 static unsigned short *framebuffer_mmap[4]={0,0,0,0};
@@ -52,18 +56,33 @@ struct fb_fix_screeninfo fb1_fixed_info;
 
 int altVolumeCtrl = 0;
 
+SDL_Surface *screen, *sgame = NULL;
+SDL_Surface *game[4] = {0,0,0,0};
+
 /* 
 ########################
 Graphics functions
 ########################
  */
+unsigned short gpi_getbppmode()
+{
+	return 16;
+
+	//SDL_DisplayMode d;
+
+	//SDL_GetCurrentDisplayMode(&d);
+
+	//return d.?
+}
+
+
 
 static void debug(char *text, int pause)
 {
-	unsigned short bppmode;
-	bppmode=gp2x_memregs[0x28DA>>1];
-	bppmode>>=9;
-	bppmode<<=3;
+	unsigned short bppmode = gpi_getbppmode();
+	//bppmode=gp2x_memregs[0x28DA>>1];
+	//bppmode>>=9;
+	//bppmode<<=3;
 	
 	if(bppmode==8)
 	{
@@ -72,7 +91,7 @@ static void debug(char *text, int pause)
 	}
 	else
 	{
-		gp_clearFramebuffer8(framebuffer16[currFB],0);
+		gp_clearFramebuffer16(framebuffer16[currFB],0);
 		gp_drawString(0,0,strlen(text),text,(unsigned short)MENU_RGB(31,31,31),framebuffer16[currFB]);
 	}
 	MenuFlip();
@@ -85,9 +104,42 @@ void gp_drawPixel8 ( int x, int y, unsigned char c, unsigned char *framebuffer )
 	*(framebuffer +(320*y)+x ) = c;
 }
 
+static int clipping_x1 = 0; 
+static int clipping_x2 = 319;
+static int clipping_y1 = 0;
+static int clipping_y2 = 239;
+
+void gp_setClipping(int x1, int y1, int x2, int y2) {
+	if (x1 < 0) x1 = 0;
+	if (x1 > 319) x1 = 319;
+	if (x2 < 0) x2 = 0;
+	if (x2 > 319) x2 = 319;
+	if (y1 < 0) y1 = 0;
+	if (y1 > 239) y1 = 239;
+	if (y2 < 0) y2 = 0;
+	if (y2 > 239) y2 = 239;
+
+	if (x1 < x2) {
+		clipping_x1 = x1;
+		clipping_x2 = x2;
+	} else {
+		clipping_x2 = x1;
+		clipping_x1 = x2;
+	}
+
+	if (y1 < y2) {
+		clipping_y1 = y1;
+		clipping_y2 = y2;
+	} else {
+		clipping_y2 = y1;
+		clipping_y1 = y2;
+	}
+}
+
 static __inline__
 void gp_drawPixel16 ( int x, int y, unsigned short c, unsigned short *framebuffer ) 
 {
+	if ((x < clipping_x1) || (x > clipping_x2) || (y < clipping_y1) || (y > clipping_y2)) return;
 	*(framebuffer +(320*y)+x ) = c;
 }
 
@@ -158,20 +210,22 @@ void set_char8x8_8bpp (int xx,int yy,int offset,unsigned char mode,unsigned char
 void gp_drawString (int x,int y,int len,char *buffer,unsigned short color,void *framebuffer) 
 {
 	int l,base=0;
-	unsigned short bppmode;
-	bppmode=gp2x_memregs[0x28DA>>1];
-	bppmode>>=9;
-	bppmode<<=3;
+	unsigned short bppmode = gpi_getbppmode();
+	//bppmode=gp2x_memregs[0x28DA>>1];
+
+
+	//bppmode>>=9;
+	//bppmode<<=3;
 
 		for (l=0;l<len;l++) 
 		{
 			if (bppmode==8)
 			{
-				set_char8x8_8bpp (x+base,y,buffer[l],color,framebuffer);
+				set_char8x8_8bpp (x+base,y,buffer[l],color,(unsigned char*)framebuffer);
 			}
 			else 
 			{
-				set_char8x8_16bpp (x+base,y,buffer[l],color,framebuffer);
+				set_char8x8_16bpp (x+base,y,buffer[l],color,(short unsigned int*)framebuffer);
 			}
 			base+=8;
 		}
@@ -216,65 +270,28 @@ void gp_clearFramebuffer(void *framebuffer, unsigned int pal)
 
 unsigned int gp_getButton(unsigned char enable_diagnals)
 {
-	unsigned int value=(gp2x_memregs[0x1198>>1] & 0x00FF);
-   //gp2x_memregs[0x1198>>1]
-  /*
-  0x1FE = UP		1 1111 1110	
-  0x17E			1 0111 1110
-  0x17F			1 0111 1111
-  0X13F			1 0011 1111
-  0x1BF = RIGHT	1 1011 1111
-  0X19F			1 1001 1111
-  0X1DF			1 1101 1111
-  0X1CF			1 1100 1111
-  0x1EF = DOWN	1 1110 1111
-  0x1E7			1 1110 0111
-  0x1F7			1 1111 0111
-  0x1F3			1 1111 0011
-  0x1FB = LEFT	1 1111 1011
-  0x1F9			1 1111 1001
-  0x1FD			1 1111 1101
-  0x1FC			1 1111 1100
- 
-  */
-	switch(value)
-	{
-		//UP
-		case 0x7E:
-		case 0xFC:
-			value = 0xFE;
-			break;
-			
-		//RIGHT	
-		case 0x3F:
-		case 0x9F:
-			value = 0xBF;
-			break;
-			
-		//DOWN
-		case 0xCF:
-		case 0xE7:
-			value = 0xEF;
-			break;
-			
-		//LEFT
-		case 0xF3:
-		case 0xF9:
-			value = 0xFB;
-			break;	
-	}
-	
-	if (enable_diagnals)
-	{
-	
-		if(value==0xFD) value=0xFA;
-		if(value==0xF7) value=0xEB;
-		if(value==0xDF) value=0xAF;
-		if(value==0x7F) value=0xBE;
-	}
+	SDL_PumpEvents();
+	Uint8 *keystate = SDL_GetKeyState(NULL);
 
-  
-  return ~((gp2x_memregs[0x1184>>1] & 0xFF00) | value | (gp2x_memregs[0x1186>>1] << 16));
+	unsigned int ret = 0;
+
+	if (keystate[SDLK_UP]) ret |= 1<<INP_BUTTON_UP;
+	if (keystate[SDLK_DOWN]) ret |= 1<<INP_BUTTON_DOWN;
+	if (keystate[SDLK_LEFT]) ret |= 1<<INP_BUTTON_LEFT;
+	if (keystate[SDLK_RIGHT]) ret |= 1<<INP_BUTTON_RIGHT;
+	if (keystate[SDLK_RETURN]) ret |= 1<<INP_BUTTON_START;
+	if (keystate[SDLK_ESCAPE]) ret |= 1<<INP_BUTTON_SELECT;
+	if (keystate[SDLK_TAB]) ret |= 1<<INP_BUTTON_L;
+	if (keystate[SDLK_BACKSPACE]) ret |= 1<<INP_BUTTON_R;
+	if (keystate[SDLK_LALT]) ret |= 1<<INP_BUTTON_A;
+	if (keystate[SDLK_LCTRL]) ret |= 1<<INP_BUTTON_B;
+	if (keystate[SDLK_RSHIFT]) ret |= 1<<INP_BUTTON_X;
+	if (keystate[SDLK_SPACE]) ret |= 1<<INP_BUTTON_Y;
+
+	if (keystate[SDLK_RCTRL]) ret |= 1<<INP_BUTTON_VOL_UP;
+	if (keystate[SDLK_RCTRL]) ret |= 1<<INP_BUTTON_VOL_DOWN;
+
+	return ret;
 }
 
 void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
@@ -285,6 +302,7 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 	unsigned int offset = 0;
 	char buf[256];
 	
+	gp_setClipping(0, 0, 319, 239);
 
 #ifdef DEBUG
     printf("Entering gp_initGraphics....\r\n");
@@ -298,38 +316,11 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 		sprintf(buf, "Initing buffer\r\n");
 		printf(buf);
 #endif 
-		gp2x_dev[0] = open("/dev/fb0", O_RDWR);
-		gp2x_dev[1] = open("/dev/fb1", O_RDWR);
-		gp2x_dev[2] = open("/dev/mem", O_RDWR);
-		
-#ifdef DEBUG
-		sprintf(buf, "Devices opened\r\n");
-		printf(buf);
-		sprintf(buf, "/dev/fb0: %x \r\n", gp2x_dev[0]);
-		printf(buf);
-		sprintf(buf, "/dev/fb1: %x \r\n", gp2x_dev[1]);
-		printf(buf);
-		sprintf(buf, "/dev/mem: %x \r\n", gp2x_dev[2]);
-		printf(buf);
-#endif 		
+		if (!framebuffer_mmap[0]) framebuffer_mmap[0]=(void *)malloc(fb_size);
+		if (!framebuffer_mmap[1]) framebuffer_mmap[1]=(void *)malloc(fb_size);
+		if (!framebuffer_mmap[2]) framebuffer_mmap[2]=(void *)malloc(fb_size);
+		if (!framebuffer_mmap[3]) framebuffer_mmap[3]=(void *)malloc(fb_size);
 
-		gp2x_memregs=(unsigned short *)mmap(0, 0x10000, PROT_READ|PROT_WRITE, MAP_SHARED, gp2x_dev[2], 0xc0000000);
-		gp2x_memregl=(unsigned long *)gp2x_memregs;
-		if (!gp2x_blitter) gp2x_blitter=(unsigned long  *)mmap(0, 0x100, PROT_READ|PROT_WRITE, MAP_SHARED, gp2x_dev[2], 0xe0020000);
-  
-		if (!framebuffer_mmap[0]) framebuffer_mmap[0]=(void *)mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, gp2x_dev[2], (gp2x_physvram[0]=0x04000000-(0x26000*4) )); 
-		if (!framebuffer_mmap[1]) framebuffer_mmap[1]=(void *)mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, gp2x_dev[2], (gp2x_physvram[1]=0x04000000-(0x26000*3) )); 
-		if (!framebuffer_mmap[2]) framebuffer_mmap[2]=(void *)mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, gp2x_dev[2], (gp2x_physvram[2]=0x04000000-(0x26000*2) )); 
-		if (!framebuffer_mmap[3]) framebuffer_mmap[3]=(void *)mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, gp2x_dev[2], (gp2x_physvram[3]=0x04000000-(0x26000*1) )); 
-
-		if (applyMmuHack) 
-		{
-			printf("Applying MMUHACK..."); fflush(stdout);
-			mmuHackStatus = mmuhack();
-			sprintf(buf, "Done\r\n. MMUHACK returned: %x\r\n", mmuHackStatus); 
-			printf(buf); fflush(stdout); 
-		}
-		
 		// offset externally visible buffers by 8
 		// this allows DrMD to not worry about clipping
 		framebuffer16[0]=framebuffer_mmap[0]+8;
@@ -337,10 +328,10 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 		framebuffer16[2]=framebuffer_mmap[2]+8;
 		framebuffer16[3]=framebuffer_mmap[3]+8;
 		//ofset physical buffer as well
-		gp2x_physvram[0]+=16;
-		gp2x_physvram[1]+=16;
-		gp2x_physvram[2]+=16;
-		gp2x_physvram[3]+=16;
+		//gp2x_physvram[0]=framebuffer16[0];
+		//gp2x_physvram[1]=framebuffer16[1];
+		//gp2x_physvram[2]=framebuffer16[2];
+		//gp2x_physvram[3]=framebuffer16[3];
 		// clear all the framebuffers to black
 		// otherwise you get crap displayed on the screen the first time
 		// you start 
@@ -356,26 +347,47 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 		memset(framebuffer16[3],0,320*240*2);
 	
 		InitFramebuffer=1;
-		
-		//gp2x_memregs[0x0F16>>1] = 0x830a; 
-		//usleep(1000000); 
-		//gp2x_memregs[0x0F58>>1] = 0x100c; 
-		//usleep(1000000); 
-		
-		
 	}
 	
 	
-	// Set graphics mode
-	gp2x_memregs[0x28DA>>1]=(((bpp+1)/8)<<9)|0xAB; /*8/15/16/24bpp...*/
-	gp2x_memregs[0x290C>>1]=320*((bpp+1)/8);
-	
-	//TV out fix
-	gp_video_RGB_setscaling(320,240);
-	
-	// 2d accel
-  	//gp2x_memregs[0x904 >> 1] |= 1<<10;  //SYSCLKENREG (System Clock Enable Register) maybe bit 10 is 2d accer
-	//gp2x_memregs[0x90a >> 1] = 0xffff;  // Reset clock timings for all devices
+    if ( SDL_Init(SDL_INIT_AUDIO|SDL_INIT_VIDEO) < 0 ) {
+	fprintf(stderr, "Unable to init SDL: %s\n", SDL_GetError());
+	exit(1);
+    }
+    atexit(SDL_Quit);
+
+	if (screen == NULL)
+{
+	screen = SDL_SetVideoMode(320, 240, bpp, SDL_SWSURFACE|SDL_FULLSCREEN);
+    if ( screen == NULL ) {
+        fprintf(stderr, "Unable to set 320x240 video: %s\n", SDL_GetError());
+        exit(1);
+    }
+
+		sgame = SDL_CreateRGBSurface(SDL_HWSURFACE, 320, 240, screen->format->BitsPerPixel,
+		                    screen->format->Rmask,
+		                    screen->format->Gmask,
+		                    screen->format->Bmask, 0);
+	    if ( sgame == NULL ) {
+		fprintf(stderr, "Unable to create 320x240 surface: %s\n", SDL_GetError());
+		exit(1);
+	    }
+
+	for (x=0; x<4; x++)
+	{
+		game[x] = SDL_CreateRGBSurfaceFrom(framebuffer16[x], 320, 240, screen->format->BitsPerPixel,
+				    //320 * (screen->format->BitsPerPixel / 8),
+				    sgame->pitch,
+		                    screen->format->Rmask,
+		                    screen->format->Gmask,
+		                    screen->format->Bmask, 0);
+	    if ( game[x] == NULL ) {
+		fprintf(stderr, "Unable to create 320x240 surface: %s\n", SDL_GetError());
+		exit(1);
+	    }
+	}
+	SDL_ShowCursor(SDL_DISABLE);
+}
 	
 	gp_setFramebuffer(flip,1);
 	
@@ -387,49 +399,26 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 void gp_setFramebuffer(int flip, int sync)
 {
 	CurrentFrameBuffer=flip;
-	unsigned int address=(unsigned int)gp2x_physvram[flip];
-	unsigned short x=0;
-	/*switch(sync)
-	{
-		case 0:
-			// No sync
-			break;
-		
-		case 1:
-			// VSync
-			while(1)
-			{
-				x=gp2x_memregs[0x1182>>1];
-				if((x&(1<<4)) == 0)
-				{
-					break;
-				}
-			}
-			break;
-		case 2:
-			// HSync
-			while(1)
-			{
-				x=gp2x_memregs[0x1182>>1];
-				if((x&(1<<5)) == 0)
-				{
-					break;
-				}
-			}
-			break;
-	}*/
-	
-	gp2x_memregs[0x290E>>1]=(unsigned short)(address & 0xffff);
-	gp2x_memregs[0x2910>>1]=(unsigned short)(address >> 16);
-	gp2x_memregs[0x2912>>1]=(unsigned short)(address & 0xffff);
-	gp2x_memregs[0x2914>>1]=(unsigned short)(address >> 16);
+
+	//printf("%d\n", flip);
+
+	//SDL_LockSurface( sgame );
+	//memcpy(sgame->pixels, framebuffer16[flip], fb_size);
+	//SDL_UnlockSurface( sgame );
+	//SDL_BlitSurface(sgame, NULL, screen, NULL);
+	//SDL_SoftStretch( sgame, NULL, screen, NULL );
+
+	SDL_SoftStretch( game[CurrentFrameBuffer], NULL, screen, NULL );
+	//SDL_BlitSurface(game[CurrentFrameBuffer], NULL, screen, NULL);
+
+	SDL_Flip(screen);
 }
 
 void gp2x_video_setpalette(void) 
 { 
-  unsigned short *g=(unsigned short *)gp2x_palette; int i=512; 
-  gp2x_memregs[0x2958>>1]=0;                                                      
-  while(i--) gp2x_memregs[0x295A>>1]=*g++; 
+  //unsigned short *g=(unsigned short *)gp2x_palette; int i=512; 
+  //gp2x_memregs[0x2958>>1]=0;                                                      
+  //while(i--) gp2x_memregs[0x295A>>1]=*g++; 
 } 
 
 /* 
@@ -440,59 +429,23 @@ Sound functions
 static
 void *gp2x_sound_play(void)
 {
-	//struct timespec ts; ts.tv_sec=0, ts.tv_nsec=1000;
-	while(! gp2x_sound_thread_exit)
-	{
-		Timer++;
-		CurrentSoundBank++;
 
-		if (CurrentSoundBank >= 8) CurrentSoundBank = 0;
-		
-		if (SoundThreadFlag==SOUND_THREAD_SOUND_ON)
-		{
-			write(gp2x_dev[3], (void *)pOutput[CurrentSoundBank], gp2x_sound_buffer[1]);
-			ioctl(gp2x_dev[3], SOUND_PCM_SYNC, 0); 
-			//ts.tv_sec=0, ts.tv_nsec=(gp2x_sound_buffer[3]<<16)|gp2x_sound_buffer[2];
-			//nanosleep(&ts, NULL);
-		}
-		else
-		{
-			write(gp2x_dev[3], (void *)&gp2x_sound_buffer[4], gp2x_sound_buffer[1]);
-			ioctl(gp2x_dev[3], SOUND_PCM_SYNC, 0); 
-			//ts.tv_sec=0, ts.tv_nsec=(gp2x_sound_buffer[3]<<16)|gp2x_sound_buffer[2];
-			//nanosleep(&ts, NULL);
-		}
-	}
- 
 	return NULL;
 }
 
 void gp2x_sound_play_bank(int bank)
 {
-	write(gp2x_dev[3], (void *)(&gp2x_sound_buffer[4+(bank*gp2x_sound_buffer[1])]), gp2x_sound_buffer[1]);
 }
 
 void gp2x_sound_sync(void)
 {
-	ioctl(gp2x_dev[3], SOUND_PCM_SYNC, 0); 
 }
 
 void gp2x_sound_volume(int l, int r) 
 { 
-	if(!gp2x_dev[4])
-	{
-		gp2x_dev[4] = open("/dev/mixer", O_WRONLY); 
-	}
-
-	l=((l<<8)|r);
-	if (altVolumeCtrl) //For FW >= 4.0
-	{
-		ioctl(gp2x_dev[4], SOUND_MIXER_WRITE_VOLUME, &l);
-	}
-	ioctl(gp2x_dev[4], SOUND_MIXER_WRITE_PCM, &l);
 } 
 
-unsigned long gp2x_timer_read(void)
+unsigned long gp_timer_read(void)
 {
   // Once again another peice of direct hardware access bites the dust
   // the code below is broken in firmware 2.1.1 so I've replaced it with a
@@ -514,62 +467,103 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag)
 	unsigned int bufferStart=0;
 	int result;
 	char text[256];
+
+	snd_pcm_hw_params_t *params;
+	uint32_t val;
+	int32_t dir = -1;
+	snd_pcm_uframes_t frames;
 	
-	//Check if firmware version > 4
-	FILE *fVersion = fopen("/usr/gp2x/version","r");
-	if (fVersion)
-	{
-		if (fgetc(fVersion) == '4')
-		{
-			altVolumeCtrl = 1;
-		}
-		fclose(fVersion);
-	}
+	/* Open PCM device for playback. */
+	int32_t rc = snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
 
-	//int frag=0x00020010;   // double buffer - frag size = 1<<0xf = 32768
+	if (rc < 0)
+		rc = snd_pcm_open(&handle, "plughw:0,0,0", SND_PCM_STREAM_PLAYBACK, 0);
 
-	//8 = 256				= 2 fps loss			= good sound
-	//9 = 512				= 1 fps loss			= good sound
-	//A = 1024				= 
-	//f = 32768				= 0 fps loss			= bad sound
-	if ((frag!= CurrentFrag)&&(gp2x_dev[3]!=0))
-	{
-		// Different frag config required
-		// close device in order to re-adjust
-		close(gp2x_dev[3]);
-		gp2x_dev[3]=0;
-	}
+	if (rc < 0)
+		rc = snd_pcm_open(&handle, "plughw:0,0", SND_PCM_STREAM_PLAYBACK, 0);
+		
+	if (rc < 0)
+		rc = snd_pcm_open(&handle, "plughw:1,0,0", SND_PCM_STREAM_PLAYBACK, 0);
 
-	if (gp2x_dev[3]==0)
-	{
-		gp2x_dev[3] = open("/dev/dsp", O_WRONLY);
-		printf("Opening sound device: %x\r\n",gp2x_dev[3]);
-		ioctl(gp2x_dev[3], SNDCTL_DSP_SETFRAGMENT, &frag);
-		CurrentFrag=frag; // save frag config
-	}
+	if (rc < 0)
+		rc = snd_pcm_open(&handle, "plughw:1,0", SND_PCM_STREAM_PLAYBACK, 0);
 
-	//ioctl(gp2x_dev[3], SNDCTL_DSP_RESET, 0);
-	result=ioctl(gp2x_dev[3], SNDCTL_DSP_SPEED,  &rate);
-	if(result==-1)
+	if (rc < 0)
 	{
-		debug("Error setting DSP Speed",1);
-		return(-1);
+		fprintf(stderr, "unable to open PCM device: %s\n", snd_strerror(rc));
+		return 1;
 	}
 	
-	result=ioctl(gp2x_dev[3], SNDCTL_DSP_SETFMT,  &bits);
-	if(result==-1)
+	snd_pcm_nonblock(handle, 0);
+
+	/* Allocate a hardware parameters object. */
+	snd_pcm_hw_params_alloca(&params);
+
+	/* Fill it in with default values. */
+	rc = snd_pcm_hw_params_any(handle, params);
+	if (rc < 0)
 	{
-		debug("Error setting DSP format",1);
-		return(-1);
+		fprintf(stderr, "Error:snd_pcm_hw_params_any %s\n", snd_strerror(rc));
+		return 1;
 	}
 
-	result=ioctl(gp2x_dev[3], SNDCTL_DSP_STEREO,  &stereo);
-	if(result==-1)
+	/* Set the desired hardware parameters. */
+
+	/* Interleaved mode */
+	rc = snd_pcm_hw_params_set_access(handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
+	if (rc < 0)
 	{
-		debug("Error setting DSP format",1);
-		return(-1);
+		fprintf(stderr, "Error:snd_pcm_hw_params_set_access %s\n", snd_strerror(rc));
+		return 1;
 	}
-	//printf("Disable Blocking: %x\r\n",ioctl(gp2x_dev[3], 0x5421, &nonblocking));
+
+	/* Signed 16-bit little-endian format */
+	rc = snd_pcm_hw_params_set_format(handle, params, SND_PCM_FORMAT_S16_LE);
+	if (rc < 0)
+	{
+		fprintf(stderr, "Error:snd_pcm_hw_params_set_format %s\n", snd_strerror(rc));
+		return 1;
+	}
+
+	/* Two channels (stereo) */
+	rc = snd_pcm_hw_params_set_channels(handle, params, 2);
+	if (rc < 0)
+	{
+		fprintf(stderr, "Error:snd_pcm_hw_params_set_channels %s\n", snd_strerror(rc));
+		return 1;
+	}
+	
+	val = SOUND_OUTPUT_FREQUENCY;
+	rc = snd_pcm_hw_params_set_rate_near(handle, params, &val, &dir);
+	if (rc < 0)
+	{
+		fprintf(stderr, "Error:snd_pcm_hw_params_set_rate_near %s\n", snd_strerror(rc));
+		return 1;
+	}
+
+	/* Set period size to settings.aica.BufferSize frames. */
+	frames = SOUND_SAMPLES_SIZE;
+	rc = snd_pcm_hw_params_set_period_size_near(handle, params, &frames, &dir);
+	if (rc < 0)
+	{
+		fprintf(stderr, "Error:snd_pcm_hw_params_set_buffer_size_near %s\n", snd_strerror(rc));
+		return 1;
+	}
+	frames *= 4;
+	rc = snd_pcm_hw_params_set_buffer_size_near(handle, params, &frames);
+	if (rc < 0)
+	{
+		fprintf(stderr, "Error:snd_pcm_hw_params_set_buffer_size_near %s\n", snd_strerror(rc));
+		return 1;
+	}
+
+	/* Write the parameters to the driver */
+	rc = snd_pcm_hw_params(handle, params);
+	if (rc < 0)
+	{
+		fprintf(stderr, "Unable to set hw parameters: %s\n", snd_strerror(rc));
+		return 1;
+	}
 	
 	gp2x_sound_buffer[1]=(gp2x_sound_buffer[0]=(rate/Hz)) << (stereo + (bits==16));
 	gp2x_sound_buffer[2]=(1000000000/Hz)&0xFFFF;
@@ -584,13 +578,7 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag)
 	pOutput[5] = (short*)bufferStart+(5*gp2x_sound_buffer[1]);
 	pOutput[6] = (short*)bufferStart+(6*gp2x_sound_buffer[1]);
 	pOutput[7] = (short*)bufferStart+(7*gp2x_sound_buffer[1]);
-	
-	if(!gp2x_sound_thread) 
-	{ 
-		pthread_create( &gp2x_sound_thread, NULL, gp2x_sound_play, NULL);
-		//atexit(gp_Reset); 
-	}
-	
+
 	for(i=0;i<(gp2x_sound_buffer[1]*8);i++)
 	{
 		gp2x_sound_buffer[4+i] = 0;
@@ -603,13 +591,11 @@ void gp_stopSound(void)
 {
 	unsigned int i=0;
 	gp2x_sound_thread_exit=1;
-	printf("Killing Thread\r\n");
+
 	for(i=0;i<(gp2x_sound_buffer[1]*8);i++)
 	{
 		gp2x_sound_buffer[4+i] = 0;
 	}
-	usleep(100000); 
-	printf("Thread is dead\r\n");
 	gp2x_sound_thread=0;
 	gp2x_sound_thread_exit=0;
 	CurrentSoundBank=0;
@@ -623,76 +609,16 @@ System functions
  */
 void gp_Reset(void)
 {
-	unsigned int i=0;
-	
-	
-	if( gp2x_sound_thread) 
-	{ 
-		gp2x_sound_thread_exit=1; 
-		usleep(500); 
-	}
- 
-	gp2x_memregs[0x28DA>>1]=0x4AB; 
-	gp2x_memregs[0x290C>>1]=640;   
-	munmap((void *)gp2x_memregs,      0x10000);
-	
-	munmap(framebuffer_mmap[0],    fb_size);
-	munmap(framebuffer_mmap[1],    fb_size);
-	munmap(framebuffer_mmap[2],    fb_size);
-	munmap(framebuffer_mmap[3],    fb_size);
-  
-	if (gp2x_dev[0]) close(gp2x_dev[0]);
-	if (gp2x_dev[1]) close(gp2x_dev[1]);
-	if (gp2x_dev[2]) close(gp2x_dev[2]);
-	if (gp2x_dev[3]) close(gp2x_dev[3]);
-	if (gp2x_dev[4]) close(gp2x_dev[4]);
-	
-	fcloseall();
 
-	// If MMUHACK was applied succesfully then remove it 
-	if (mmuHackStatus) mmuunhack();
- 
-	chdir("/usr/gp2x");
-	execl("gp2xmenu",NULL);
 }
 
 void gp_video_RGB_setscaling(int W, int H)
 {
- float escalaw,escalah;
- int bpp=(gp2x_memregs[0x28DA>>1]>>9)&0x3;
 
- if(gp2x_memregs[0x2800>>1]&0x100) //TV-Out
- {
-   escalaw=489.0; //RGB Horiz TV (PAL, NTSC)
-   if (gp2x_memregs[0x2818>>1]  == 287) //PAL
-     escalah=274.0; //RGB Vert TV PAL
-   else if (gp2x_memregs[0x2818>>1]  == 239) //NTSC
-     escalah=331.0; //RGB Vert TV NTSC
- }
- else //LCD
- {
-   escalaw=1024.0; //RGB Horiz LCD
-   escalah=320.0; //RGB Vert LCD
- }
-
- // scale horizontal
- gp2x_memregs[0x2906>>1]=(unsigned short)((float)escalaw *(W/320.0));
- // scale vertical
- gp2x_memregl[0x2908>>2]=(unsigned long)((float)escalah *bpp *(H/240.0));
 }
 
 void gp_setCpuspeed(unsigned int MHZ)
 {
-	unsigned v;
-	unsigned mdiv,pdiv=3,scale=0;
-
-	MHZ*=1000000;
-	mdiv=(MHZ*pdiv)/SYS_CLK_FREQ;
-	mdiv=((mdiv-8)<<8) & 0xff00;
-	pdiv=((pdiv-2)<<2) & 0xfc;
-	scale&=3;
-	v=mdiv | pdiv | scale;
-	gp2x_memregs[0x910>>1]=v;
 
 }
 
@@ -700,33 +626,12 @@ void gp_setCpuspeed(unsigned int MHZ)
 // set_RAM_Timings(6, 4, 1, 1, 1, 2, 2);
 void set_RAM_Timings(int tRC, int tRAS, int tWR, int tMRD, int tRFC, int tRP, int tRCD)
 {
-	tRC -= 1; tRAS -= 1; tWR -= 1; tMRD -= 1; tRFC -= 1; tRP -= 1; tRCD -= 1; // ???
-	gp2x_memregs[0x3802>>1] = ((tMRD & 0xF) << 12) | ((tRFC & 0xF) << 8) | ((tRP & 0xF) << 4) | (tRCD & 0xF);
-	gp2x_memregs[0x3804>>1] = /*0x9000 |*/ ((tRC & 0xF) << 8) | ((tRAS & 0xF) << 4) | (tWR & 0xF);
 }
 
 void set_gamma(int g100)
 {
-	float gamma = (float) g100 / 100;
-	int i;
-	gamma = 1/gamma;
-
-    //enable gamma
-    gp2x_memregs[0x2880>>1]&=~(1<<12);
-
-    gp2x_memregs[0x295C>>1]=0;
-    for(i=0; i<256; i++)
-    {
-		unsigned char g;
-        unsigned short s;
-        g =(unsigned char)(255.0*pow(i/255.0,gamma));
-        s = (g<<8) | g;
-		gp2x_memregs[0x295E>>1]= s;
-        gp2x_memregs[0x295E>>1]= g;
-    }
 }
 
-
-
-
-
+void gp_sound_volume(int l, int r)
+{ 
+} 

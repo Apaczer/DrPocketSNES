@@ -25,7 +25,7 @@ char snesRomDir[MAX_PATH+1];
 
 DIRDATA dir;
 
-#if defined (__GP2X__)	
+#if defined (__GP2X__)	|| defined(__PANDORA__)
 unsigned short cpuSpeedLookup[46]={ 
 					10,20, 30, 40, 50,
 					60,70, 80, 90,100,
@@ -192,7 +192,7 @@ void SnesDefaultMenuOptions(void)
 	// no options file loaded, so set to defaults
 	snesMenuOptions.menuVer=SNES_OPTIONS_VER;
 	snesMenuOptions.frameSkip=0;
-	snesMenuOptions.soundOn = 1; 
+	snesMenuOptions.soundOn = 0; 
 	snesMenuOptions.volume=100; 
 	memset(snesMenuOptions.padConfig,0xFF,sizeof(snesMenuOptions.padConfig));
 	snesMenuOptions.showFps=1;
@@ -348,7 +348,7 @@ void MenuPause()
 		}
 	}
 }
-#if defined (__GP2X__) || defined(__WIZ__)	
+#if defined (__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)		
 void MenuFlip()
 {
 	prevFB=currFB;
@@ -683,7 +683,7 @@ int FileScan()
 		{
 			if (de->d_name[0] != '.')
 			{
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 				if (de->d_type == 4) // Directory
 #endif
 #ifdef __GIZ__
@@ -1528,7 +1528,7 @@ void SNESOptionsUpdateText(int menu_index)
 			else
 				sprintf(menutext[SNES_MENU_SOUND_RATE],"Sound Rate: %d mono",(unsigned int)soundRates[snesMenuOptions.soundRate]);
 			break;
-#if defined(__GP2X__) || defined(__WIZ__)	
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 		case SNES_MENU_CPUSPEED:
 			sprintf(menutext[SNES_MENU_CPUSPEED],"Cpu Speed: %d",(unsigned int)cpuSpeedLookup[snesMenuOptions.cpuSpeed]);
 			break;
@@ -1627,7 +1627,7 @@ void SNESOptionsUpdateText(int menu_index)
 		case SNES_MENU_RETURN:
 			sprintf(menutext[SNES_MENU_RETURN],"Back");
 			break;
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 		case SNES_MENU_RENDER_MODE:
 			switch(snesMenuOptions.renderMode)
 			{
@@ -1962,7 +1962,7 @@ void SNESOptionsUpdateText_All()
 	SNESOptionsUpdateText(SNES_MENU_SET_ROMDIR);
 	SNESOptionsUpdateText(SNES_MENU_CLEAR_ROMDIR);
 	SNESOptionsUpdateText(SNES_MENU_RETURN);
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 	SNESOptionsUpdateText(SNES_MENU_RENDER_MODE);
 	SNESOptionsUpdateText(SNES_MENU_CPUSPEED);
 	SNESOptionsUpdateText(SNES_MENU_ACTION_BUTTONS);
@@ -2066,7 +2066,7 @@ int SNESOptionsMenu(void)
 					}
 					SNESOptionsUpdateText(SNES_MENU_SOUND_VOL);
 					break;
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 				case SNES_MENU_CPUSPEED:
 					if (Inp.held[INP_BUTTON_RIGHT]==1||Inp.repeat[INP_BUTTON_RIGHT])
 					{
@@ -2127,7 +2127,7 @@ int SNESOptionsMenu(void)
 					SNESOptionsUpdateText(SNES_MENU_GAMMA);
 					break;
 #endif
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 				case SNES_MENU_ACTION_BUTTONS:
 					snesMenuOptions.actionButtons^=1;
 					SNESOptionsUpdateText(SNES_MENU_ACTION_BUTTONS);
@@ -2137,7 +2137,7 @@ int SNESOptionsMenu(void)
 					snesMenuOptions.transparency^=1;
 					SNESOptionsUpdateText(SNES_MENU_TRANSPARENCY);
 					break;
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 				case SNES_MENU_RENDER_MODE:
 					if (Inp.held[INP_BUTTON_RIGHT]==1||Inp.repeat[INP_BUTTON_RIGHT])
 					{

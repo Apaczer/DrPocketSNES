@@ -159,7 +159,7 @@ void _splitpath (const char *path, char *drive, char *dir, char *fname,
 
 #endif //  _SNESPPC
 
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 
 #define	ZDELTA	0x13000
 

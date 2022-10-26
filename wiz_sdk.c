@@ -6,7 +6,6 @@
 #include <sys/ioctl.h>
 #include <sys/soundcard.h>
 #include <linux/fb.h>
-#include <linux/fb.h>
 #include <pthread.h>
 #include "menu.h"
 #include "wiz_sdk.h"
@@ -18,16 +17,15 @@
 #include "warm.h"
 
 #define SYS_CLK_FREQ 27
-#define BUFFERS	4
 
-static int fb_size=(320*240*2); //+(16*2);
+static int fb_size=(320*240*2)+(16*2);
 
 //unsigned long gp2x_ticks_per_second=7372800/1000;
 unsigned long   wiz_dev[3]={0,0,0};
-unsigned long wiz_physvram[BUFFERS]={0,0,0,0};
+unsigned long wiz_physvram[4]={0,0,0,0};
 
-unsigned short *framebuffer16[BUFFERS]={0,0,0,0};
-static unsigned short *framebuffer_mmap[BUFFERS]={0,0,0,0};
+unsigned short *framebuffer16[4]={0,0,0,0};
+static unsigned short *framebuffer_mmap[4]={0,0,0,0};
 unsigned short gp2x_sound_buffer[4+((44100*2)*8)]; //*2=stereo, *4=max buffers
 
 volatile short *pOutput[8];
@@ -49,7 +47,7 @@ volatile uint32_t *memregs32;
 volatile uint16_t *memregs16;
 volatile uint8_t  *memregs8;
 
-extern unsigned short * pOutputScreen;
+extern unsigned short * pOutputScreeen;
 
 /* Sets the dirty flag for the MLC */
 static void lc_dirtymlc(void)
@@ -205,44 +203,12 @@ static void debug(char *text, int pause)
 
 }
 
-static int clipping_x1 = 0; 
-static int clipping_x2 = 319;
-static int clipping_y1 = 0;
-static int clipping_y2 = 239;
-
-void gp_setClipping(int x1, int y1, int x2, int y2) {
-	if (x1 < 0) x1 = 0;
-	if (x1 > 319) x1 = 319;
-	if (x2 < 0) x2 = 0;
-	if (x2 > 319) x2 = 319;
-	if (y1 < 0) y1 = 0;
-	if (y1 > 239) y1 = 239;
-	if (y2 < 0) y2 = 0;
-	if (y2 > 239) y2 = 239;
-
-	if (x1 < x2) {
-		clipping_x1 = x1;
-		clipping_x2 = x2;
-	} else {
-		clipping_x2 = x1;
-		clipping_x1 = x2;
-	}
-
-	if (y1 < y2) {
-		clipping_y1 = y1;
-		clipping_y2 = y2;
-	} else {
-		clipping_y2 = y1;
-		clipping_y1 = y2;
-	}
-}
-
 static __inline__
 void gp_drawPixel16 ( int x, int y, unsigned short c, unsigned short *framebuffer ) 
 {
-	if ((x < clipping_x1) || (x > clipping_x2) || (y < clipping_y1) || (y > clipping_y2)) return;
 	*(framebuffer +(320*y)+x ) = c;
 }
+
 static
 void set_char8x8_16bpp (int xx,int yy,int offset,unsigned short mode,unsigned short *framebuffer) 
 {
@@ -310,12 +276,7 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 	unsigned int key = 0;
 	unsigned int offset = 0;
 	char buf[256];
-
-	struct fb_fix_screeninfo info;
-	int fb_fd;
-	int f;
-
-	gp_setClipping(0, 0, 319, 239);
+	
 
 #ifdef DEBUG
     printf("Entering gp_initGraphics....\r\n");
@@ -356,20 +317,11 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 		bkregs32[5] = MLCTOPBOTTOM0; bkregs32[6] = MLCLEFTRIGHT1; bkregs32[7] = MLCTOPBOTTOM1; bkregs32[8] = MLCBGCOLOR; bkregs32[9] = MLCHSTRIDE0;
 		bkregs32[10] = MLCVSTRIDE0; bkregs32[11] = MLCHSTRIDE1; bkregs32[12] = MLCVSTRIDE1; bkregs32[13] = DPCCTRL1; bkregs32[14] = MLCSCREENSIZE;
 		bkregs32[15] = PLLSETREG0;
-
-		// Get frame buffer address, do not hardcode them, for tv-out compatibility
-		fb_fd = open("/dev/fb0", O_RDWR);
-		if ((!fb_fd) || (ioctl(fb_fd, FBIOGET_FSCREENINFO, &info) < 0)) return;
-
-		wiz_physvram[0] = info.smem_start;		
-		framebuffer_mmap[0] = (void *)mmap(0, fb_size * BUFFERS, PROT_READ|PROT_WRITE, MAP_SHARED, wiz_dev[0], wiz_physvram[0]); 		
-
-		for (f = 1; f < BUFFERS; f++) {
-			framebuffer_mmap[f] = framebuffer_mmap[f-1] + (fb_size / sizeof(unsigned short));
-			wiz_physvram[f] = wiz_physvram[f-1] + fb_size; 
-			}
-
-		close(fb_fd);
+		
+		if (!framebuffer_mmap[0]) framebuffer_mmap[0]=(void *)mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, wiz_dev[0], (wiz_physvram[0]=0x04000000-(0x26000*4) )); 
+		if (!framebuffer_mmap[1]) framebuffer_mmap[1]=(void *)mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, wiz_dev[0], (wiz_physvram[1]=0x04000000-(0x26000*3) )); 
+		if (!framebuffer_mmap[2]) framebuffer_mmap[2]=(void *)mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, wiz_dev[0], (wiz_physvram[2]=0x04000000-(0x26000*2) )); 
+		if (!framebuffer_mmap[3]) framebuffer_mmap[3]=(void *)mmap(0, fb_size, PROT_READ|PROT_WRITE, MAP_SHARED, wiz_dev[0], (wiz_physvram[3]=0x04000000-(0x26000*1) )); 
 
 		if (applyMmuHack) 
 		{
@@ -377,13 +329,12 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 			warm_change_cb_upper(WCB_C_BIT|WCB_B_BIT, 1);
 		}
 		
-		// Init and clear the frame buffers
-		for (f = 0; f < BUFFERS; f++) {
-			memset(framebuffer_mmap[f], 0, fb_size);
-			framebuffer16[f] = framebuffer_mmap[f];
-			}
+		// Clear the frame buffers
+		memset(framebuffer_mmap[0],0,fb_size);
+		memset(framebuffer_mmap[1],0,fb_size);
+		memset(framebuffer_mmap[2],0,fb_size);
+		memset(framebuffer_mmap[3],0,fb_size);
 
-/* Not working well with TV-Out
 		// offset externally visible buffers by 8
 		// this allows DrMD to not worry about clipping
 		framebuffer16[0]=framebuffer_mmap[0]+8;
@@ -395,8 +346,15 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 		wiz_physvram[1]+=16;
 		wiz_physvram[2]+=16;
 		wiz_physvram[3]+=16;
-*/
-		InitFramebuffer=1;		
+
+	
+		InitFramebuffer=1;
+		
+		//gp2x_memregs[0x0F16>>1] = 0x830a; 
+		//usleep(1000000); 
+		//gp2x_memregs[0x0F58>>1] = 0x100c; 
+		//usleep(1000000); 
+		
 		
 	}
 	
@@ -412,7 +370,7 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 	gp_setFramebuffer(flip,1);
 	usleep(100000);
 
-    pollux_set(memregs16, "lcd_timings=397,1,37,277,341,0,17,337;dpc_clkdiv0=9");
+	pollux_set(memregs16, "lcd_timings=397,1,37,277,341,0,17,337;dpc_clkdiv0=9");
     pollux_set(memregs16, "ram_timings=2,9,4,1,1,1,1");
 #ifdef DEBUG
     printf("Leaving gp_initGraphics....\r\n");
@@ -425,12 +383,6 @@ void gp_setFramebuffer(int flip, int sync)
 	unsigned int address=(unsigned int)wiz_physvram[flip];
 	unsigned short x=0;
 
-	// Wait for VSync if required
-	if (sync) {
-		while((DPCCTRL0 & 0x400) == 0); 
-		DPCCTRL0 |= 0x400;
-		}
-
 	/* set absolute address for framebuffers */
 	MLCADDRESS1 = address;
 	lc_dirtylayer(1);
@@ -442,32 +394,30 @@ Sound functions
 ########################
  */
 static
-void *gp2x_sound_play(void *x)
+void *gp2x_sound_play(void)
 {
 	//struct timespec ts; ts.tv_sec=0, ts.tv_nsec=1000;
 	while(! gp2x_sound_thread_exit)
 	{
 		Timer++;
-		//CurrentSoundBank++;
-		//if (CurrentSoundBank >= 8) CurrentSoundBank = 0;
+		CurrentSoundBank++;
+
+		if (CurrentSoundBank >= 8) CurrentSoundBank = 0;
 		
-		//if (SoundThreadFlag==SOUND_THREAD_SOUND_ON)
-		//{
-		write(wiz_dev[1], (void *)pOutput[CurrentSoundBank], gp2x_sound_buffer[1]);
-		CurrentSoundBank = (CurrentSoundBank  + 1) & 7;
-		ioctl(wiz_dev[1], SOUND_PCM_SYNC, 0); 
+		if (SoundThreadFlag==SOUND_THREAD_SOUND_ON)
+		{
+			write(wiz_dev[1], (void *)pOutput[CurrentSoundBank], gp2x_sound_buffer[1]);
+			ioctl(wiz_dev[1], SOUND_PCM_SYNC, 0); 
 			//ts.tv_sec=0, ts.tv_nsec=(gp2x_sound_buffer[3]<<16)|gp2x_sound_buffer[2];
 			//nanosleep(&ts, NULL);
-/*
 		}
 		else
 		{
 			write(wiz_dev[1], (void *)&gp2x_sound_buffer[4], gp2x_sound_buffer[1]);
-			//ioctl(wiz_dev[1], SOUND_PCM_SYNC, 0); 
+			ioctl(wiz_dev[1], SOUND_PCM_SYNC, 0); 
 			//ts.tv_sec=0, ts.tv_nsec=(gp2x_sound_buffer[3]<<16)|gp2x_sound_buffer[2];
 			//nanosleep(&ts, NULL);
 		}
-*/
 	}
  
 	return NULL;
@@ -484,7 +434,6 @@ void gp_sound_volume(int l, int r)
 	ioctl(wiz_dev[2], SOUND_MIXER_WRITE_PCM, &l);
 } 
 
-/*
 unsigned long gp_timer_read(void)
 {
   // Once again another peice of direct hardware access bites the dust
@@ -498,7 +447,6 @@ unsigned long gp_timer_read(void)
   //tval.tv_sec
   return (tval.tv_sec*1000000)+tval.tv_usec;
 }
-*/
 
 int gp_initSound(int rate, int bits, int stereo, int Hz, int frag)
 {
@@ -515,7 +463,6 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag)
 	//9 = 512				= 1 fps loss			= good sound
 	//A = 1024				= 
 	//f = 32768				= 0 fps loss			= bad sound
-	/*	
 	if ((frag!= CurrentFrag)&&(wiz_dev[1]!=0))
 	{
 		// Different frag config required
@@ -523,14 +470,13 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag)
 		close(wiz_dev[1]);
 		wiz_dev[1]=0;
 	}
-	*/
 
 	if (wiz_dev[1]==0)
 	{
 		wiz_dev[1] = open("/dev/dsp", O_WRONLY);
 		printf("Opening sound device: %x\r\n",wiz_dev[1]);
-		//ioctl(wiz_dev[1], SNDCTL_DSP_SETFRAGMENT, &frag);
-		//CurrentFrag=frag; // save frag config
+		ioctl(wiz_dev[1], SNDCTL_DSP_SETFRAGMENT, &frag);
+		CurrentFrag=frag; // save frag config
 	}
 
 	//ioctl(wiz_dev[3], SNDCTL_DSP_RESET, 0);
@@ -560,7 +506,7 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag)
 	gp2x_sound_buffer[2]=(1000000000/Hz)&0xFFFF;
 	gp2x_sound_buffer[3]=(1000000000/Hz)>>16;
  
-	bufferStart= (unsigned int)&gp2x_sound_buffer[4];
+	bufferStart= &gp2x_sound_buffer[4];
 	pOutput[0] = (short*)bufferStart+(0*gp2x_sound_buffer[1]);
 	pOutput[1] = (short*)bufferStart+(1*gp2x_sound_buffer[1]);
 	pOutput[2] = (short*)bufferStart+(2*gp2x_sound_buffer[1]);
@@ -610,6 +556,7 @@ void gp_Reset(void)
 {
 	unsigned int i=0;
 	
+	
 	gp_setCpuspeed(533);
 
 	if( gp2x_sound_thread) 
@@ -628,8 +575,11 @@ void gp_Reset(void)
 
    	munmap((void *)memregs32, 0x20000);
 	
-	munmap(framebuffer_mmap[0], fb_size * BUFFERS);
-
+	munmap(framebuffer_mmap[0],    fb_size);
+	munmap(framebuffer_mmap[1],    fb_size);
+	munmap(framebuffer_mmap[2],    fb_size);
+	munmap(framebuffer_mmap[3],    fb_size);
+  
 	if (wiz_dev[0]) close(wiz_dev[0]);
 	if (wiz_dev[1]) close(wiz_dev[1]);
 	if (wiz_dev[2]) close(wiz_dev[2]);
@@ -642,7 +592,7 @@ void gp_Reset(void)
 
 void gp_video_RGB_setscaling(int W, int H)
 {
-	uint16_t * pSource = (uint16_t *)pOutputScreen;
+	uint16_t * pSource = (uint16_t *)pOutputScreeen;
 	uint16_t * pTarget = (uint16_t *)framebuffer16[currFB];
 	unsigned short y;
 	unsigned short x;
@@ -696,7 +646,7 @@ void gp_video_RGB_setscaling(int W, int H)
 #define COLORMIX(a, b) ( ((((a & 0xF81F) + (b & 0xF81F)) >> 1) & 0xF81F) | ((((a & 0x07E0) + (b & 0x07E0)) >> 1) & 0x07E0) )
 void gp_video_RGB_setHZscaling(int W, int H)
 {
-	uint16_t * pSource = (uint16_t *)pOutputScreen;
+	uint16_t * pSource = (uint16_t *)pOutputScreeen;
 	uint16_t * pTarget = (uint16_t *)framebuffer16[currFB];
 	unsigned short y;
 	unsigned short x;

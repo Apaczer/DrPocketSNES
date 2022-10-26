@@ -4,7 +4,7 @@
 extern volatile uint32_t *memregs32;
 extern volatile uint16_t *memregs16;
 extern volatile uint8_t  *memregs8;
-//extern volatile uint16_t *uppermem;
+extern volatile uint16_t *uppermem;
 #define BIT(number) (1<<(number))
 
 /* CPU control */

@@ -937,9 +937,6 @@ void S9xMixSamplesO (signed short *buffer, int sample_count, int sample_offset)
 					register int E = Echo [SoundData.echo_ptr];
 
 					Loop [(Z - 0) & 15] = E;
-
-
-
 					E =  E                    * FilterTaps [0];
 					E += Loop [(Z -  2) & 15] * FilterTaps [1];
 					E += Loop [(Z -  4) & 15] * FilterTaps [2];

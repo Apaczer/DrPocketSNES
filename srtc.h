@@ -41,7 +41,7 @@
 #ifndef _srtc_h_
 #define _srtc_h_
 
-#if !defined(_SNESPPC) && !defined(__GIZ__) && !defined(__GP2X__) && !defined(__WIZ__)
+#if !defined(_SNESPPC) && !defined(__GIZ__) && !defined(__GP2X__) && !defined(__WIZ__) && !defined(__PANDORA__)
 #include <time.h>
 #endif
 

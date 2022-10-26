@@ -5,7 +5,7 @@
 DEFAULT = wiz
 NFAST =	fast
 NCOMP = compatible
-ALL_TARGETS = wiz caanoo gp2x
+ALL_TARGETS = wiz
 ODIR_SUFFIX = objs
 PNAME = pocketsnes
 
@@ -25,8 +25,6 @@ export FILE_DATE
 
 all: 
 	make wiz
-	make caanoo
-	make gp2x
 
 # default to fast version
 default: $(DEFAULT)f
@@ -34,8 +32,10 @@ default: $(DEFAULT)f
 # clean
 clean: ALL_TARGETS_DIRS = $(addsuffix _$(NFAST)_$(ODIR_SUFFIX)/,$(ALL_TARGETS)) $(addsuffix _$(NCOMP)_$(ODIR_SUFFIX)/,$(ALL_TARGETS)) 
 clean: 
-	rm -f $(addsuffix *.o,$(ALL_TARGETS_DIRS))
-	rm -f *.gpe 	
+#	rm -f $(addsuffix *.o,$(ALL_TARGETS_DIRS))
+	rm -f compatible_objs/*.o
+	rm -f fast_objs/*.o
+	rm -f $(PNAME)_compatible* $(PNAME)_fast*
 
 # when release is targeted compile both fast and compatible versions
 release: 
@@ -56,22 +56,24 @@ do:
 
 # -- Wiz common
 wiz_common: MNAME = wiz
-wiz_common: COPT += -mcpu=arm926ej-s -mtune=arm926ej-s -g -D__WIZ__ 
+wiz_common: COPT += -mcpu=arm926ej-s -mtune=arm926ej-s -g -D__PANDORA__
 #wiz_common: COPT += -D__FAST_OBJS__
-#wiz_common: COPT += -O3
-wiz_common: COPT += -Os 
-wiz_common: COPT += -ffast-math -msoft-float
-wiz_common: COPT += -finline -finline-functions -fexpensive-optimizations 
-wiz_common: COPT += -falign-functions=32 -falign-loops -falign-labels -falign-jumps
-wiz_common: COPT += -fomit-frame-pointer 
-wiz_common: COPT += -fno-common -fno-builtin -fstrict-aliasing -mstructure-size-boundary=32 
+wiz_common: COPT += -O3
+#wiz_common: COPT += -Os 
+wiz_common: COPT += -static -ffast-math -msoft-float
+wiz_common: COPT += -finline-limit=42 -fno-unroll-loops -fno-ipa-cp -ffast-math
+wiz_common: COPT += -fno-common -fno-stack-protector -fno-guess-branch-probability -fno-caller-saves -fno-regmove 
+#wiz_common: COPT += -finline -finline-functions -fexpensive-optimizations 
+#wiz_common: COPT += -falign-functions=32 -falign-loops -falign-labels -falign-jumps
+#wiz_common: COPT += -fomit-frame-pointer 
+#wiz_common: COPT += -fno-common -fno-builtin -fstrict-aliasing -mstructure-size-boundary=32 
 # -fweb -frename-registers 
 # -fsplit-ivs-in-unroller
 #wiz_common: COPT += -Wall -Wno-sign-compare -Wunused -Wpointer-arith -Wcast-align -Waggregate-return 
-wiz_common: OBJS = wiz_sdk.o warm.o squidgehack.o pollux_set.o
+wiz_common: OBJS = pandora_sdk.o
 wiz_common: OBJS += os9x_65c816_global.o os9x_65c816_spcasm.o os9x_65c816_spcc.o os9x_asm_cpu.o
-wiz_common: ARCH = arm-open2x-linux
-wiz_common: SDK = /opt/open2x/gcc-4.1.1-glibc-2.3.6
+wiz_common: ARCH = $(CROSS)
+wiz_common: SDK = $(SDKC)
 #/$(ARCH)
 #wiz_common: ARCH = arm-openwiz-linux-gnu
 #wiz_common: SDK = /opt/openwiz/toolchain/$(ARCH)
@@ -80,90 +82,18 @@ wiz_common: do
 # -- Fast version
 wizf: VNAME = $(NFAST)
 #wizf: COPT = -DASMCPU -D__DEBUG__
-wizf: COPT = -DASMCPU
+wizf: COPT = -DASMCPU -DDEBUG
 wizf: wiz_common
 
 # -- Normal version 
 wizc: VNAME = $(NCOMP)
-wizc: COPT = -DUSE_SA1 
+wizc: COPT = -DUSE_SA1 -DDEBUG 
 wizc: wiz_common
 
 wiz:
 	make $@f
 	make $@c
 	
-# ---------------------
-# Caanoo
-# ---------------------
-
-# -- Caanoo common
-caanoo_common: MNAME = caanoo
-caanoo_common: COPT += -mcpu=arm926ej-s -mtune=arm926ej-s -g -D__WIZ__ -D__CAANOO__ 
-caanoo_common: COPT += -Os
-caanoo_common: COPT += -finline -finline-functions -fexpensive-optimizations 
-caanoo_common: COPT += -falign-functions=32 -falign-loops -falign-labels -falign-jumps
-caanoo_common: COPT += -fomit-frame-pointer
-caanoo_common: COPT += -fno-common -fno-builtin -fstrict-aliasing -mstructure-size-boundary=32 
-caanoo_common: OBJS = caanoo_sdk.o warm.o squidgehack.o pollux_set.o 
-caanoo_common: OBJS += os9x_65c816_global.o os9x_65c816_spcasm.o os9x_65c816_spcc.o os9x_asm_cpu.o
-# EABI
-#caanoo_common: ARCH = arm-gph-linux-gnueabi
-#caanoo_common: SDK = /opt/caanoo_sdk/tools/gcc-4.2.4-glibc-2.7-eabi
-# OABI 
-caanoo_common: COPT += -static -ffast-math -msoft-float
-caanoo_common: ARCH = arm-open2x-linux
-caanoo_common: SDK = /opt/open2x/gcc-4.1.1-glibc-2.3.6
-caanoo_common: do
-
-# -- Fast version
-caanoof: VNAME = $(NFAST)
-#caanoof: COPT = -DASMCPU -D__DEBUG__
-caanoof: COPT = -DASMCPU
-caanoof: caanoo_common
-
-# -- Normal version 
-caanooc: VNAME = $(NCOMP)
-caanooc: COPT = -DUSE_SA1 
-caanooc: caanoo_common
-
-caanoo:
-	make $@f
-	make $@c
-
-# ---------------------
-# GP2X
-# ---------------------
-
-# -- GP2X common
-gp2x_common: MNAME = gp2x
-gp2x_common: COPT += -mcpu=arm920t -mtune=arm920t -static -g -D__GP2X__
-gp2x_common: COPT += -Os 
-gp2x_common: COPT += -ffast-math -msoft-float
-gp2x_common: COPT += -finline -finline-functions -fexpensive-optimizations 
-gp2x_common: COPT += -falign-functions=32 -falign-loops -falign-labels -falign-jumps
-gp2x_common: COPT += -fomit-frame-pointer 
-gp2x_common: COPT += -fno-common -fstrict-aliasing -mstructure-size-boundary=32 
-gp2x_common: OBJS = gp2x_sdk.o warm.o squidgehack.o mmuhack.o
-gp2x_common: OBJS += os9x_65c816_global_armv4.o os9x_65c816_spcasm.o os9x_65c816_spcc.o os9x_asm_cpu.o
-gp2x_common: ARCH = arm-open2x-linux
-gp2x_common: SDK = /opt/open2x/gcc-4.1.1-glibc-2.3.6
-gp2x_common: do
-
-# -- Fast version
-gp2xf: VNAME = $(NFAST)
-gp2xf: COPT = -DASMCPU
-gp2xf: gp2x_common
-
-# -- Normal version 
-gp2xc: VNAME = $(NCOMP)
-gp2xc: COPT = -DUSE_SA1 
-gp2xc: gp2x_common
-
-gp2x:
-	make $@f
-	make $@c
-
-
 ## Second stage
 else
 
@@ -173,7 +103,7 @@ STRIP = $(TOOLS)/$(ARCH)-strip
 ADSASM = $(TOOLS)/$(ARCH)-as
 LIBS = -I$(SDK)/include
 INCS = -L$(SDK)/lib
-ODIR = $(MNAME)_$(VNAME)_$(ODIR_SUFFIX)
+ODIR = $(VNAME)_$(ODIR_SUFFIX)
 # Inopia's menu system, hacked for the GP2X under rlyeh's sdk
 PRELIBS = -lpthread -lz $(LIBS)
 
@@ -204,7 +134,7 @@ OBJS += usbjoy.o
 OBJS += menu.o config.o input.o gp2x_menutile.o gp2x_highlightbar.o \
 	gp2x_menu_header.o unzip.o ioapi.o zip.o asm_util.o png.o graphics.o lodepng.o theme.o minIni.o
 OBJS += disk_img.o 
-OBJS += memset.o memcmp.o memcpy.o strlen.o strcmp.o strncmp.o  
+#OBJS += memset.o memcmp.o memcpy.o strlen.o strcmp.o strncmp.o
 
 #
 # and the glue code that sticks it all together :)
@@ -214,8 +144,8 @@ FOBJS = $(addprefix $(ODIR)/,$(OBJS))
 COPT += $(INCS) $(LIBS)
 
 executable: $(FOBJS)
-	$(GCC) $(COPT)  $(FOBJS) $(PRELIBS) -o $(PNAME)d_$(MNAME)_$(VNAME).gpe -lstdc++ -lm
-	$(STRIP) $(PNAME)d_$(MNAME)_$(VNAME).gpe -o $(PNAME)_$(MNAME)_$(VNAME).gpe
+	$(GCC) $(COPT)  $(FOBJS) $(PRELIBS) -o $(PNAME)_$(VNAME)_d -lstdc++ -lm -lSDL -lasound -static
+	$(STRIP) $(PNAME)_$(VNAME)_d -o $(PNAME)_$(VNAME)
 
 $(FOBJS): | $(ODIR)
 

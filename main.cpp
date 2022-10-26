@@ -35,6 +35,12 @@ unsigned short *pOutputScreen;
 #include "sys/resource.h"
 #endif
 
+#ifdef __PANDORA__
+#include <unistd.h>
+#define TIMER_1_SECOND	1000000
+#include "pandora_sdk.h"
+#endif
+
 #include "menu.h"
 #include "snes9x.h"
 #include "memmap.h"
@@ -510,7 +516,7 @@ extern "C"
    }
 #endif
 
-#ifdef __WIZ__
+#if defined(__WIZ__)  || defined(__PANDORA__)
    uint32 S9xReadJoypad (int which1)
    {
 		uint32 val=0x80000000;
@@ -831,7 +837,7 @@ static int SegAim()
 }
 #endif
 
-#if defined(__GP2X__) || defined(__WIZ__) 
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 static int SegAim()
 {
   int aim=CurrentSoundBank; 
@@ -1311,7 +1317,7 @@ int main(int argc, char *argv[])
 	//initScreenShots();
 
 	GFX.Screen = (uint8 *) framebuffer16[currFB];
-#if defined(__WIZ__) || defined(__GP2X__)
+#if defined(__WIZ__) || defined(__GP2X__) || defined(__PANDORA__)
 	GFX.SubScreen = (uint8 *)malloc(GFX_PITCH * 240 * 2);
 	GFX.ZBuffer =  (uint8 *)malloc(0x13000*2);
 	GFX.SubZBuffer = GFX.ZBuffer + ZDELTA;
@@ -1514,7 +1520,7 @@ int main(int argc, char *argv[])
 				so.playback_rate = Settings.SoundPlaybackRate;
 				S9xSetPlaybackRate(so.playback_rate);
 				S9xSetSoundMute (FALSE);
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 				SoundThreadFlag = SOUND_THREAD_SOUND_ON;
 #endif
 				gp_sound_volume(snesMenuOptions.volume,snesMenuOptions.volume);
@@ -1544,7 +1550,7 @@ int main(int argc, char *argv[])
 #ifdef __GIZ__
 							soundbuffer=(uint8 *)FrameworkAudio_GetAudioBank(done);
 #endif
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 							soundbuffer=(uint8 *)pOutput[done];
 #endif
 							done++; if (done>=8) done=0;
@@ -1575,7 +1581,7 @@ int main(int argc, char *argv[])
 								}
 	
 #endif
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 								if ((done==aim)) 
 								{
 									IPPU.RenderThisFrame=TRUE; // Render last frame
@@ -1603,7 +1609,7 @@ int main(int argc, char *argv[])
 						}
 						if (done==aim) break; // Up to date now
 					}
-#if defined (__GP2X__) || defined(__WIZ__)					
+#if defined (__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 					done=aim; // Make sure up to date
 #endif					
 					// need some way to exit menu
@@ -1619,8 +1625,8 @@ int main(int argc, char *argv[])
 				int tick=0,fps=0;
 				unsigned int frame_limit = (Settings.PAL?50:60);
 				unsigned int frametime=TIMER_1_SECOND/frame_limit;
-				CPU.APU_APUExecuting = Settings.APUEnabled = 0;
-				S9xSetSoundMute (TRUE);
+				CPU.APU_APUExecuting = Settings.APUEnabled = 1;
+				S9xSetSoundMute (FALSE);
 				Timer=0;
 				Frames=0;
 				while (1)
@@ -1696,7 +1702,7 @@ int main(int argc, char *argv[])
 
 	free(GFX.SubScreen); 
 	free(GFX.ZBuffer);
-#ifndef __WIZ__ 
+#if !defined(__WIZ__) && !defined(__GP2X__) && !defined(__PANDORA__)
 	free(GFX.SubZBuffer);
 #endif
  

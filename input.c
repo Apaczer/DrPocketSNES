@@ -125,15 +125,12 @@ int InputUpdate(int EnableDiagnals)
   key |= joy_getButton(0);
 #endif
 
-#if defined(__WIZ__)
+#if defined(__WIZ__) || defined(__PANDORA__)
   key=gp_getButton(EnableDiagnals);
   key&=	(1<<INP_BUTTON_UP)|
 			(1<<INP_BUTTON_LEFT)|
 			(1<<INP_BUTTON_DOWN)|
 			(1<<INP_BUTTON_RIGHT)|
-#ifdef __CAANOO__
-			(1<<INP_BUTTON_HOME)|
-#endif
 			(1<<INP_BUTTON_START)|
 			(1<<INP_BUTTON_SELECT)|
 			(1<<INP_BUTTON_L)|

@@ -60,7 +60,7 @@ extern int HDMA_ModeByteCounts [8];
 extern uint8 *HDMAMemPointers [8];
 extern uint8 *HDMABasePointers [8];
 
-#if defined(__linux__) || defined(__WIN32__) || defined(__GP2X__) || defined(__GIZ__) || defined(__WIZ__)
+#if defined(__linux__) || defined(__WIN32__) || defined(__GP2X__) || defined(__GIZ__) || defined(__WIZ__) || defined(__PANDORA__)
 static int S9xCompareSDD1IndexEntries (const void *p1, const void *p2)
 {
     return (*(uint32 *) p1 - *(uint32 *) p2);
@@ -127,7 +127,7 @@ void S9xDoDMA (uint8 Channel)
 		}
 		else
 		{
-	#if defined (__GP2X__) || defined (__GIZ__) || defined (__WIZ__)
+	#if defined (__GP2X__) || defined (__GIZ__) || defined (__WIZ__) || defined(__PANDORA__)
 			void *ptr = bsearch (&address, Memory.SDD1Index, 
 					 Memory.SDD1Entries, 12, S9xCompareSDD1IndexEntries);
 			if (ptr)

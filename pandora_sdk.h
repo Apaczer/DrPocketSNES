@@ -1,5 +1,5 @@
-#ifndef _GP2X_SDK_H_
-#define _GP2X_SDK_H_
+#ifndef _PANDORA_SDK_H_
+#define _PANDORA_SDK_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -25,6 +25,7 @@ extern "C" {
 #define INP_BUTTON_VOL_DOWN			(22)
 #define INP_BUTTON_STICK_PUSH		(27)
 
+void gp_setClipping(int x1, int y1, int x2, int y2);
 void gp_drawString (int x,int y,int len,char *buffer,unsigned short color,void *framebuffer);
 void gp_clearFramebuffer16(unsigned short *framebuffer, unsigned short pal);
 void gp_clearFramebuffer8(unsigned char *framebuffer, unsigned char pal);
@@ -39,7 +40,8 @@ void gp_Reset(void);
 void gp2x_enableIRQ(void);
 void gp2x_disableIRQ(void);
 void gp2x_sound_volume(int l, int r);
-unsigned long gp2x_timer_read(void);
+void gp_sound_volume(int l, int r);
+unsigned long gp_timer_read(void);
 unsigned int gp_getButton(unsigned char enable_diagnals);
 void gp_video_RGB_setscaling(int W, int H);
 void gp2x_sound_play_bank(int bank);

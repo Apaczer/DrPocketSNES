@@ -28,6 +28,10 @@ extern "C" {
 		#endif
 	#endif
 
+	#ifdef __PANDORA__
+		#include "pandora_sdk.h"
+	#endif
+
 	#define DIR_SEP	"/"
 	#define DIR_SEP_BAD "\\"	
 	#define SYSTEM_DIR		"/mnt/sd/DrPocketSnes"
@@ -55,7 +59,7 @@ extern "C" {
 #define SAVESTATE_MODE_DELETE			2
 
 #define SNES_OPTIONS_VER 			1
-#define PSVER	"7.2.0"
+#define PSVER	"7.2.1"
 #ifdef ASMCPU
 	#define DRSNES_VERSION				"v " PSVER " fast"
 #else
@@ -127,6 +131,11 @@ enum SNES_MENU_ENUM
 	SNES_MENU_ACTION_BUTTONS,
 #endif
 #if defined(__WIZ__)
+	SNES_MENU_CPUSPEED,
+	SNES_MENU_RENDER_MODE,
+	SNES_MENU_ACTION_BUTTONS,
+#endif
+#if defined(__PANDORA__)
 	SNES_MENU_CPUSPEED,
 	SNES_MENU_RENDER_MODE,
 	SNES_MENU_ACTION_BUTTONS,
@@ -223,7 +232,7 @@ enum RENDER_MODE_ENUM
 #define MENU_TEXT_PREVIEW_SAVESTATE 	"Press R to preview"
 #endif
 
-#if defined(__GP2X__) || defined(__WIZ__)
+#if defined(__GP2X__) || defined(__WIZ__) || defined(__PANDORA__)
 #define INP_BUTTON_MENU_SELECT			INP_BUTTON_B
 #define INP_BUTTON_MENU_CANCEL			INP_BUTTON_X
 #define INP_BUTTON_MENU_ENTER			INP_BUTTON_SELECT
