@@ -10,3 +10,4 @@ export LD=${CROSS}-ld
 export AS=${CROSS}-as
 export CXX=${CROSS}-g++
 export STRIP=${CROSS}-strip
+make
