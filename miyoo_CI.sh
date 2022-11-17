@@ -10,4 +10,6 @@ export LD=${CROSS}-ld
 export AS=${CROSS}-as
 export CXX=${CROSS}-g++
 export STRIP=${CROSS}-strip
+export INCLUDE=/opt/miyoo/usr/arm-miyoo-linux-uclibcgnueabi/sysroot/usr/include
+export INCLUDE2=/opt/miyoo/arm-miyoo-linux-uclibcgnueabi/sysroot/usr/lib
 make

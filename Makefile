@@ -60,7 +60,7 @@ wiz_common: COPT += -mcpu=arm926ej-s -mtune=arm926ej-s -g -D__PANDORA__
 #wiz_common: COPT += -D__FAST_OBJS__
 wiz_common: COPT += -O3
 #wiz_common: COPT += -Os 
-wiz_common: COPT += -static -ffast-math -msoft-float
+#wiz_common: COPT += -static -ffast-math -msoft-float
 wiz_common: COPT += -finline-limit=42 -fno-unroll-loops -fno-ipa-cp -ffast-math
 wiz_common: COPT += -fno-common -fno-stack-protector -fno-guess-branch-probability -fno-caller-saves -fno-regmove 
 #wiz_common: COPT += -finline -finline-functions -fexpensive-optimizations 
@@ -101,11 +101,11 @@ TOOLS = $(SDK)/bin
 GCC = $(TOOLS)/$(ARCH)-gcc
 STRIP = $(TOOLS)/$(ARCH)-strip
 ADSASM = $(TOOLS)/$(ARCH)-as
-LIBS = -I$(SDK)/include
-INCS = -L$(SDK)/lib
+LIBS = -I$(SDK)/include -I$(INCLUDE2) -I$(INCLUDE) -I$(INCLUDE)/SDL 
+INCS = -I$(INCLUDE2)
 ODIR = $(VNAME)_$(ODIR_SUFFIX)
 # Inopia's menu system, hacked for the GP2X under rlyeh's sdk
-PRELIBS = -lpthread -lz $(LIBS)
+PRELIBS = -I$(INCLUDE2) -I$(INCLUDE) -I$(INCLUDE)/SDL -lpthread -lz $(LIBS)
 
 #
 # SNES stuff (c-based)
@@ -141,10 +141,10 @@ OBJS += disk_img.o
 #
 OBJS += main.o
 FOBJS = $(addprefix $(ODIR)/,$(OBJS))
-COPT += $(INCS) $(LIBS)
+COPT += $(INCS) $(LIBS) -I$(INCLUDE2) -I$(INCLUDE) -I$(INCLUDE)/SDL 
 
 executable: $(FOBJS)
-	$(GCC) $(COPT)  $(FOBJS) $(PRELIBS) -o $(PNAME)_$(VNAME)_d -lstdc++ -lm -lSDL -lasound -static
+	$(GCC) $(COPT) -I$(INCLUDE2) -I$(INCLUDE) -I$(INCLUDE)/SDL $(FOBJS) -o $(PNAME)_$(VNAME)_d -lSDL -lasound -lstdc++ -lz -lpthread
 	$(STRIP) $(PNAME)_$(VNAME)_d -o $(PNAME)_$(VNAME)
 
 $(FOBJS): | $(ODIR)
