@@ -11,14 +11,13 @@ Part of the source code between 7.2.1 release and last bittrider's official rele
 - remove redundant settings options.
 
 ## Build steps for MiyooCFW
-Use legacy NxHope toolchain (aka "steward's"), thus no forward compatiblity with latest SDK builds.
 
 Docker cross-compilation with uClibc-shared setup:
 ```sh
 git clone https://github.com/Apaczer/DrPocketSNES
 cd DrPocketSNES/
-docker pull nfriedly/miyoo-toolchain:steward
-docker run --volume ./:/src/ -it nfriedly/miyoo-toolchain:steward
+docker pull miyoocfw/toolchain-shared-uclibc:latest
+docker run --volume ./:/src/ -it miyoocfw/toolchain-shared-uclibc:latest
 cd /src
 make clean
 make

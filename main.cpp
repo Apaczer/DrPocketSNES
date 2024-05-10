@@ -107,7 +107,7 @@ char lastLoadedFile[2048];
 bool lastLoaded = false;
 unsigned short *loadingFB;
 int loadingY;
-static int loadingPrint(char *txt) {
+static void loadingPrint(char *txt) {
 	gp_drawString(20, loadingY, strlen(txt), txt, tTextColorLoading, (unsigned char*)loadingFB);
 	loadingY += 8;
 }
@@ -413,6 +413,7 @@ extern "C"
 		}
 		
 		gp_setFramebuffer(currFB,0);
+		return true;
    }
 
    const char *S9xGetFilename (const char *ex)
