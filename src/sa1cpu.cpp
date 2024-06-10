@@ -53,10 +53,14 @@
 #undef Registers
 
 #define Registers SA1Registers
-#define S9xGetByte S9xSA1GetByte
-#define S9xGetWord S9xSA1GetWord
-#define S9xSetByte S9xSA1SetByte
-#define S9xSetWord S9xSA1SetWord
+// #define S9xGetByte S9xSA1GetByte
+// #define S9xGetWord S9xSA1GetWord
+// #define S9xSetByte S9xSA1SetByte
+// #define S9xSetWord S9xSA1SetWord
+#define S9xGetByte S9xSA1GetByteFast
+#define S9xGetWord S9xSA1GetWordFast
+#define S9xSetByte S9xSA1SetByteFast
+#define S9xSetWord S9xSA1SetWordFast
 #define S9xSetPCBase S9xSA1SetPCBase
 #define S9xOpcodesM1X1 S9xSA1OpcodesM1X1
 #define S9xOpcodesM1X0 S9xSA1OpcodesM1X0
