@@ -59,6 +59,7 @@ int altVolumeCtrl = 0;
 
 SDL_Surface *screen, *sgame = NULL;
 SDL_Surface *game[4] = {0,0,0,0};
+SDL_Surface *optimizedSgame = NULL;
 
 /* 
 ########################
@@ -363,14 +364,21 @@ void gp_initGraphics(unsigned short bpp, int flip, int applyMmuHack)
 		exit(1);
 	}
 
-		sgame = SDL_CreateRGBSurface(SDL_HWSURFACE, 320, 240, screen->format->BitsPerPixel,
-		                    screen->format->Rmask,
-		                    screen->format->Gmask,
-		                    screen->format->Bmask, 0);
-	    if ( sgame == NULL ) {
+	sgame = SDL_CreateRGBSurface(SDL_HWSURFACE, 320, 240, screen->format->BitsPerPixel,
+						screen->format->Rmask,
+						screen->format->Gmask,
+						screen->format->Bmask, 0);
+	if ( sgame == NULL ) {
 		fprintf(stderr, "Unable to create 320x240 surface: %s\n", SDL_GetError());
 		exit(1);
-	    }
+	}
+	optimizedSgame = SDL_DisplayFormat(sgame);
+	if ( sgame == NULL ) {
+		fprintf(stderr, "Unable to optimize surface: %s\n", SDL_GetError());
+		exit(1);
+	}
+	SDL_FreeSurface(sgame);
+	sgame = optimizedSgame;
 
 	for (x=0; x<4; x++)
 	{
