@@ -201,6 +201,7 @@ void SnesDefaultMenuOptions(void)
 	snesMenuOptions.gamma=0;
 	snesMenuOptions.asmspc700=0;
 	snesMenuOptions.SpeedHacks=0;
+	snesMenuOptions.autoSram=1;
 	snesMenuOptions.soundHack=1;
 #if defined(__WIZ__)
 	snesMenuOptions.soundRate=0;
