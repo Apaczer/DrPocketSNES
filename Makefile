@@ -67,7 +67,7 @@ zip: release
 ipk: comp
 	cp icon.png assets/$(PNAME).png
 	cp $(PNAME)_compatible $(PNAME)
-	gm2xpkg --ipk pkg.cfg
+	gm2xpkg --ipk -f pkg.cfg
 
 # invoke stage 2
 do: STAGE = 2
