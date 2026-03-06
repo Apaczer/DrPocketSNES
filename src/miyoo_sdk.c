@@ -432,17 +432,36 @@ void gp2x_video_setpalette(void)
 Sound functions
 ########################
  */
-static
-void *gp2x_sound_play(void)
-{
 
-	while(! gp2x_sound_thread_exit)
-	{
-		Timer++;
-		CurrentSoundBank++;
-		if (CurrentSoundBank >= 8) CurrentSoundBank = 0;
-		snd_pcm_writei(handle, (void *)pOutput[CurrentSoundBank], samples);
-	}
+static void *gp2x_sound_play(void *arg) // Note: standard pthreads expect a void* argument
+{
+    int err;
+
+    while(! gp2x_sound_thread_exit)
+    {
+        Timer++;
+        CurrentSoundBank++;
+        if (CurrentSoundBank >= 8) CurrentSoundBank = 0;
+
+        err = snd_pcm_writei(handle, (void *)pOutput[CurrentSoundBank], samples);
+
+        if (err < 0) 
+        {
+            err = snd_pcm_recover(handle, err, 0);
+            
+            if (err < 0) 
+            {
+                fprintf(stderr, "ALSA write failed and recovery failed: %s\n", snd_strerror(err));
+                usleep(1000); 
+            }
+        }
+        else if (err != samples) 
+        {
+            fprintf(stderr, "Short write: expected %d, wrote %d\n", samples, err);
+        }
+    }
+    
+    return NULL; 
 }
 
 void gp2x_sound_play_bank(int bank)
@@ -476,7 +495,7 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag, int frame_lim
 	int status;
 	int i=0;
 	int nonblocking=1;
-	unsigned int bufferStart=0, period_time;
+	unsigned int period_time;
 	int result;
 	char text[256];
 
@@ -485,104 +504,56 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag, int frame_lim
 	int32_t dir = 0;
 
 	if (handle && CurrentFrameLimit != frame_limit) {
-		snd_pcm_drain(handle);
+		snd_pcm_drop(handle); 
 		snd_pcm_close(handle);
 	}
-	/* Open PCM device for playback. */
+	
 	int32_t rc = snd_pcm_open(&handle, "default", SND_PCM_STREAM_PLAYBACK, 0);
+	if (rc < 0) rc = snd_pcm_open(&handle, "plughw:0,0,0", SND_PCM_STREAM_PLAYBACK, 0);
+	if (rc < 0) rc = snd_pcm_open(&handle, "plughw:0,0", SND_PCM_STREAM_PLAYBACK, 0);
+	if (rc < 0) rc = snd_pcm_open(&handle, "plughw:1,0,0", SND_PCM_STREAM_PLAYBACK, 0);
+	if (rc < 0) rc = snd_pcm_open(&handle, "plughw:1,0", SND_PCM_STREAM_PLAYBACK, 0);
 
-	if (rc < 0)
-		rc = snd_pcm_open(&handle, "plughw:0,0,0", SND_PCM_STREAM_PLAYBACK, 0);
-
-	if (rc < 0)
-		rc = snd_pcm_open(&handle, "plughw:0,0", SND_PCM_STREAM_PLAYBACK, 0);
-		
-	if (rc < 0)
-		rc = snd_pcm_open(&handle, "plughw:1,0,0", SND_PCM_STREAM_PLAYBACK, 0);
-
-	if (rc < 0)
-		rc = snd_pcm_open(&handle, "plughw:1,0", SND_PCM_STREAM_PLAYBACK, 0);
-
-	if (rc < 0)
-	{
+	if (rc < 0) {
 		fprintf(stderr, "unable to open PCM device: %s\n", snd_strerror(rc));
 		return 1;
 	}
 	
 	snd_pcm_nonblock(handle, 0);
 
-	/* Allocate a hardware parameters object. */
 	snd_pcm_hw_params_alloca(&params);
 
-	/* Fill it in with default values. */
 	rc = snd_pcm_hw_params_any(handle, params);
-	if (rc < 0)
-	{
+	if (rc < 0) {
 		fprintf(stderr, "Error:snd_pcm_hw_params_any %s\n", snd_strerror(rc));
 		return 1;
 	}
 
-	/* Set the desired hardware parameters. */
-
-	/* Interleaved mode */
 	rc = snd_pcm_hw_params_set_access(handle, params, SND_PCM_ACCESS_RW_INTERLEAVED);
-	if (rc < 0)
-	{
-		fprintf(stderr, "Error:snd_pcm_hw_params_set_access %s\n", snd_strerror(rc));
-		return 1;
-	}
-
-	/* Signed 16-bit little-endian format */
+	
 	rc = snd_pcm_hw_params_set_format(handle, params, SND_PCM_FORMAT_S16_LE);
-	if (rc < 0)
-	{
-		fprintf(stderr, "Error:snd_pcm_hw_params_set_format %s\n", snd_strerror(rc));
-		return 1;
-	}
-
-	/* Two channels (stereo) */
-	rc = snd_pcm_hw_params_set_channels(handle, params, 2);
-	if (rc < 0)
-	{
-		fprintf(stderr, "Error:snd_pcm_hw_params_set_channels %s\n", snd_strerror(rc));
-		return 1;
-	}
+	
+	rc = snd_pcm_hw_params_set_channels(handle, params, stereo ? 2 : 1);
 	
 	val = rate;
 	rc = snd_pcm_hw_params_set_rate_near(handle, params, &val, &dir);
-	if (rc < 0)
-	{
-		fprintf(stderr, "Error:snd_pcm_hw_params_set_rate_near %s\n", snd_strerror(rc));
-		return 1;
-	}
 
 	samples = val / frame_limit;
-	period_time = samples / val * 1000000;
+	
+	period_time = (unsigned int)((samples * 1000000ULL) / val);
 	CurrentFrameLimit = frame_limit;
+	
 	rc = snd_pcm_hw_params_set_period_size_near(handle, params, &samples, NULL);
-	if (rc < 0)
-	{
-		fprintf(stderr, "Error:snd_pcm_hw_params_set_buffer_size_near %s\n", snd_strerror(rc));
-		return 1;
-	}
-	snd_pcm_uframes_t buf_size = samples*4;
+
+	snd_pcm_uframes_t buf_size = samples * 8; 
 	rc = snd_pcm_hw_params_set_buffer_size_near(handle, params, &buf_size);
-	if (rc < 0)
-	{
-		fprintf(stderr, "Error:snd_pcm_hw_params_set_buffer_size_near %s\n", snd_strerror(rc));
-		return 1;
-	}
+	
 	rc = snd_pcm_hw_params_set_period_time_near(handle, params, &period_time, 0);
-	if (rc < 0)
-	{
-		fprintf(stderr, "Error:snd_pcm_hw_params_set_period_time_near %s\n", snd_strerror(rc));
-		return 1;
-	}
-	printf("Actual Audio Freq %d Period %d bufsize %d period_time %d frame_limit %d\n",rate, samples, buf_size, period_time, frame_limit);
-	/* Write the parameters to the driver */
+	
+	printf("Actual Audio Freq %d Period %d bufsize %d period_time %d frame_limit %d\n", rate, samples, (int)buf_size, period_time, frame_limit);
+	
 	rc = snd_pcm_hw_params(handle, params);
-	if (rc < 0)
-	{
+	if (rc < 0) {
 		fprintf(stderr, "Unable to set hw parameters: %s\n", snd_strerror(rc));
 		return 1;
 	}
@@ -591,23 +562,22 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag, int frame_lim
 	gp2x_sound_buffer[2]=(1000000000/Hz)&0xFFFF;
 	gp2x_sound_buffer[3]=(1000000000/Hz)>>16;
  
-	bufferStart= &gp2x_sound_buffer[4];
-	pOutput[0] = (short*)bufferStart+(0*gp2x_sound_buffer[1]);
-	pOutput[1] = (short*)bufferStart+(1*gp2x_sound_buffer[1]);
-	pOutput[2] = (short*)bufferStart+(2*gp2x_sound_buffer[1]);
-	pOutput[3] = (short*)bufferStart+(3*gp2x_sound_buffer[1]);
-	pOutput[4] = (short*)bufferStart+(4*gp2x_sound_buffer[1]);
-	pOutput[5] = (short*)bufferStart+(5*gp2x_sound_buffer[1]);
-	pOutput[6] = (short*)bufferStart+(6*gp2x_sound_buffer[1]);
-	pOutput[7] = (short*)bufferStart+(7*gp2x_sound_buffer[1]);
+	unsigned int *bufferStartPtr = &gp2x_sound_buffer[4];
+	
+	pOutput[0] = (short*)(bufferStartPtr + (0 * gp2x_sound_buffer[1]));
+	pOutput[1] = (short*)(bufferStartPtr + (1 * gp2x_sound_buffer[1]));
+	pOutput[2] = (short*)(bufferStartPtr + (2 * gp2x_sound_buffer[1]));
+	pOutput[3] = (short*)(bufferStartPtr + (3 * gp2x_sound_buffer[1]));
+	pOutput[4] = (short*)(bufferStartPtr + (4 * gp2x_sound_buffer[1]));
+	pOutput[5] = (short*)(bufferStartPtr + (5 * gp2x_sound_buffer[1]));
+	pOutput[6] = (short*)(bufferStartPtr + (6 * gp2x_sound_buffer[1]));
+	pOutput[7] = (short*)(bufferStartPtr + (7 * gp2x_sound_buffer[1]));
 
-	if(!gp2x_sound_thread)
-	{
-		pthread_create( &gp2x_sound_thread, NULL, gp2x_sound_play, NULL);
+	if(!gp2x_sound_thread) {
+		pthread_create(&gp2x_sound_thread, NULL, gp2x_sound_play, NULL);
 	}
 
-	for(i=0;i<(gp2x_sound_buffer[1]*8);i++)
-	{
+	for(i=0; i<(gp2x_sound_buffer[1]*8); i++) {
 		gp2x_sound_buffer[4+i] = 0;
 	}
 	
@@ -616,18 +586,34 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag, int frame_lim
 
 void gp_stopSound(void)
 {
-	unsigned int i=0;
-	gp2x_sound_thread_exit=1;
+    unsigned int i = 0;
 
-	for(i=0;i<(gp2x_sound_buffer[1]*8);i++)
-	{
-		gp2x_sound_buffer[4+i] = 0;
-	}
-	gp2x_sound_thread=0;
-	gp2x_sound_thread_exit=0;
-	CurrentSoundBank=0;
+    gp2x_sound_thread_exit = 1;
+
+    if (gp2x_sound_thread) 
+    {
+        pthread_join(gp2x_sound_thread, NULL);
+        gp2x_sound_thread = 0;
+    }
+
+    if (handle) 
+    {
+        snd_pcm_drop(handle);
+        snd_pcm_close(handle);
+        handle = NULL;
+    }
+
+    if (gp2x_sound_buffer[1] > 0) 
+    {
+        for (i = 0; i < (gp2x_sound_buffer[1] * 8); i++) 
+        {
+            gp2x_sound_buffer[4+i] = 0;
+        }
+    }
+
+    gp2x_sound_thread_exit = 0;
+    CurrentSoundBank = 0;
 }
-
 
 /* 
 ########################
