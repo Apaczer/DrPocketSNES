@@ -433,7 +433,7 @@ Sound functions
 ########################
  */
 static
-void *gp2x_sound_play(void)
+void *gp2x_sound_play(void *arg) // Note: standard pthreads expect a void* argument
 {
 
 	while(! gp2x_sound_thread_exit)
@@ -485,7 +485,7 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag, int frame_lim
 	int32_t dir = 0;
 
 	if (handle && CurrentFrameLimit != frame_limit) {
-		snd_pcm_drain(handle);
+		snd_pcm_drop(handle);
 		snd_pcm_close(handle);
 	}
 	/* Open PCM device for playback. */
@@ -562,10 +562,11 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag, int frame_lim
 	rc = snd_pcm_hw_params_set_period_size_near(handle, params, &samples, NULL);
 	if (rc < 0)
 	{
-		fprintf(stderr, "Error:snd_pcm_hw_params_set_buffer_size_near %s\n", snd_strerror(rc));
+		fprintf(stderr, "Error:snd_pcm_hw_params_set_period_size_near %s\n", snd_strerror(rc));
 		return 1;
 	}
-	snd_pcm_uframes_t buf_size = samples*4;
+	snd_pcm_uframes_t buf_size = samples*8;
+	// buf_size = rate * 2 (dbf) * 4 (4 streams) / frame_limit
 	rc = snd_pcm_hw_params_set_buffer_size_near(handle, params, &buf_size);
 	if (rc < 0)
 	{
@@ -619,11 +620,26 @@ void gp_stopSound(void)
 	unsigned int i=0;
 	gp2x_sound_thread_exit=1;
 
-	for(i=0;i<(gp2x_sound_buffer[1]*8);i++)
-	{
-		gp2x_sound_buffer[4+i] = 0;
+    if (gp2x_sound_thread) 
+    {
+        pthread_join(gp2x_sound_thread, NULL);
+        gp2x_sound_thread = 0;
+    }
+
+    if (handle) 
+    {
+        snd_pcm_drop(handle);
+        snd_pcm_close(handle);
+        handle = NULL;
+    }
+
+    if (gp2x_sound_buffer[1] > 0) 
+    {
+		for(i=0;i<(gp2x_sound_buffer[1]*8);i++)
+		{
+			gp2x_sound_buffer[4+i] = 0;
+		}
 	}
-	gp2x_sound_thread=0;
 	gp2x_sound_thread_exit=0;
 	CurrentSoundBank=0;
 }
