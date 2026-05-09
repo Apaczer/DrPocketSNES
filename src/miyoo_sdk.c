@@ -541,7 +541,8 @@ int gp_initSound(int rate, int bits, int stereo, int Hz, int frag, int frame_lim
 	}
 
 	/* Two channels (stereo) */
-	rc = snd_pcm_hw_params_set_channels(handle, params, 2);
+	val = stereo ? 2 : 1;
+	rc = snd_pcm_hw_params_set_channels(handle, params, val);
 	if (rc < 0)
 	{
 		fprintf(stderr, "Error:snd_pcm_hw_params_set_channels %s\n", snd_strerror(rc));
